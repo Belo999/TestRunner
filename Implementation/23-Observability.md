@@ -17,3 +17,18 @@ OpenTelemetry should be used for standard traces and metrics where possible. It 
 ## Better Feature
 
 MarathonRunner should correlate system-under-test telemetry with load generator metrics to identify whether failures originate from the application, infrastructure, network, data layer, or test engine.
+
+## AI Observability Layer
+
+The observability layer should feed AI analysis with:
+
+- Time-series metrics.
+- Structured logs.
+- Distributed traces.
+- Kubernetes events.
+- Jenkins pipeline metadata.
+- Redis runtime metrics.
+- Test run configuration.
+- Historical baselines.
+
+The AI layer should use these signals to explain performance behavior in plain language and link every conclusion back to observable evidence.

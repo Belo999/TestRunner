@@ -34,3 +34,19 @@ The Result Pipeline turns raw execution data into useful performance insight.
 ## Better Feature
 
 Use anomaly detection to highlight unusual regressions, saturation signals, and bottleneck patterns automatically.
+
+## AI Result Intelligence
+
+The Result Pipeline should include an AI analysis stage after raw metrics and logs are collected.
+
+AI analysis should:
+
+- Compare the run against approved baselines.
+- Explain response time, throughput, and error-rate changes.
+- Detect statistically unusual behavior.
+- Identify likely bottleneck domains such as application, database, cache, Kubernetes, Redis, network, or load generator.
+- Produce audience-specific summaries.
+- Recommend next actions.
+- Attach supporting evidence such as dashboard links, log samples, traces, and metric ranges.
+
+AI output should be stored as result metadata and should remain auditable.

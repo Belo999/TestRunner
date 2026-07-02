@@ -35,6 +35,8 @@ This folder contains the implementation blueprint for MarathonRunner Enterprise,
 - [28-Deployment.md](28-Deployment.md): Deployment approach.
 - [29-Future-Roadmap.md](29-Future-Roadmap.md): Better-than-traditional feature roadmap.
 - [30-MarathonRunner-Enterprise-Project-Explanation.md](30-MarathonRunner-Enterprise-Project-Explanation.md): Full project explanation.
+- [31-AI-Features-and-Recommended-Enhancements.md](31-AI-Features-and-Recommended-Enhancements.md): AI capabilities and additional recommended platform features.
+- [32-Full-Project-Implementation-Backlog.md](32-Full-Project-Implementation-Backlog.md): Implementation epics and deliverables for the full project.
 
 ## Core Platform Intent
 
@@ -52,3 +54,21 @@ MarathonRunner Enterprise should include the major capabilities expected from Lo
 - Support for multiple teams, applications, and environments.
 
 It should also improve on traditional approaches by using Kubernetes elasticity, containerized engines, event-driven scaling, multi-engine execution, GitOps-friendly configuration, AI-assisted analysis, and integrated observability.
+
+## AI And Recommended Enhancements
+
+MarathonRunner should include AI features that help teams design better tests, detect regressions, explain failures, and make release decisions with more confidence.
+
+Recommended AI capabilities include:
+
+- Natural-language test design assistance.
+- AI script review and scenario improvement.
+- Intelligent test data recommendations.
+- Anomaly detection during active runs.
+- Bottleneck correlation across metrics, logs, traces, Kubernetes, Redis, and the system under test.
+- AI-generated engineering, release, SRE, and executive summaries.
+- Intelligent release quality gates.
+- Capacity planning and cost recommendations.
+- Policy-aware operational assistance.
+
+Additional recommended platform features include service virtualization integration, Jira or ServiceNow integration, golden test templates, environment readiness checks, baseline approval workflows, test impact analysis, chaos testing integration, browser performance testing, and automatic cleanup of stale execution resources.

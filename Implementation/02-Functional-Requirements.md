@@ -30,3 +30,15 @@
 - The platform shall support AI-assisted anomaly detection and bottleneck suggestions.
 - The platform shall support multi-region and multi-cluster test execution.
 - The platform shall support GitOps-style configuration promotion.
+
+## AI Functional Requirements
+
+- The platform shall generate AI-assisted test design recommendations from business goals.
+- The platform shall review test scripts for missing assertions, hard-coded data, weak correlation, missing think time, and poor parameterization.
+- The platform shall recommend runtime test data structures and Redis data pool partitioning.
+- The platform shall detect anomalies during active and completed test runs.
+- The platform shall correlate bottlenecks across load generator, Kubernetes, Redis, application, database, cache, and network telemetry.
+- The platform shall generate post-run summaries for engineering, release, SRE, and executive audiences.
+- The platform shall support AI-assisted release risk scoring.
+- The platform shall support capacity and cost recommendations based on historical results.
+- The platform shall enforce RBAC, masking, audit, and approval controls for AI-generated recommendations and actions.

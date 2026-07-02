@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MarathonRunner Enterprise</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">MR</span>
+        <div>
+          <strong>MarathonRunner</strong>
+          <small>Enterprise Control Plane</small>
+        </div>
+      </div>
+      <nav>
+        <a href="#overview">Overview</a>
+        <a href="#runs">Execution</a>
+        <a href="#fleet">Fleet</a>
+        <a href="#results">Results</a>
+        <a href="#ai">AI</a>
+        <a href="#governance">Governance</a>
+      </nav>
+    </aside>
+
+    <main>
+      <section id="overview" class="topbar">
+        <div>
+          <p class="eyebrow">Docker-deployable performance engineering platform</p>
+          <h1>Enterprise test control, governed execution, AI result intelligence.</h1>
+        </div>
+        <div id="health" class="status">Checking health...</div>
+      </section>
+
+      <section class="metrics">
+        <article>
+          <span id="projectCount">0</span>
+          <small>Projects</small>
+        </article>
+        <article>
+          <span id="scenarioCount">0</span>
+          <small>Scenarios</small>
+        </article>
+        <article>
+          <span id="runCount">0</span>
+          <small>Runs</small>
+        </article>
+        <article>
+          <span id="insightCount">0</span>
+          <small>AI Insights</small>
+        </article>
+        <article>
+          <span id="policyCount">0</span>
+          <small>Policies</small>
+        </article>
+        <article>
+          <span id="riskCount">0</span>
+          <small>Warnings</small>
+        </article>
+      </section>
+
+      <section id="runs" class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Execution control</p>
+            <h2>Test Runs</h2>
+          </div>
+          <div class="actions">
+            <button id="createRunButton" type="button">Create Run</button>
+            <button id="refreshButton" type="button" class="secondary">Refresh</button>
+          </div>
+        </div>
+        <div id="runsList" class="list"></div>
+      </section>
+
+      <section id="fleet" class="split">
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Execution fleet</p>
+              <h2>Load Generator Pools</h2>
+            </div>
+          </div>
+          <div id="poolList" class="list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Target readiness</p>
+              <h2>Environments</h2>
+            </div>
+          </div>
+          <div id="environmentList" class="list"></div>
+        </div>
+      </section>
+
+      <section id="results" class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Evidence repository</p>
+            <h2>Latest Results</h2>
+          </div>
+        </div>
+        <div id="resultList" class="result-grid"></div>
+      </section>
+
+      <section id="ai" class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">AI-assisted performance engineering</p>
+            <h2>Insights</h2>
+          </div>
+        </div>
+        <div id="aiList" class="list"></div>
+      </section>
+
+      <section id="governance" class="split">
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Guardrails</p>
+              <h2>Policies</h2>
+            </div>
+          </div>
+          <div id="policyList" class="list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Audit trail</p>
+              <h2>Recent Events</h2>
+            </div>
+          </div>
+          <div id="auditList" class="list compact"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

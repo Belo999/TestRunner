@@ -1,0 +1,57 @@
+services:
+  marathonrunner-app:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: marathonrunner-app
+    environment:
+      MARATHONRUNNER_HOST: 0.0.0.0
+      MARATHONRUNNER_PORT: 8080
+      MARATHONRUNNER_DB_PATH: /app/data/marathonrunner.db
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+    ports:
+      - "8080:8080"
+    volumes:
+      - marathonrunner-data:/app/data
+    depends_on:
+      - postgres
+      - redis
+      - minio
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: marathonrunner-postgres
+    environment:
+      POSTGRES_USER: marathonrunner
+      POSTGRES_PASSWORD: marathonrunner
+      POSTGRES_DB: marathonrunner
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: marathonrunner-redis
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    container_name: marathonrunner-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: marathonrunner
+      MINIO_ROOT_PASSWORD: marathonrunner123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+volumes:
+  marathonrunner-data:
+  postgres-data:
+  minio-data:
