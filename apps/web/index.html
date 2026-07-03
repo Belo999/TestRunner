@@ -5,138 +5,542 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MarathonRunner Enterprise</title>
     <link rel="stylesheet" href="/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   </head>
   <body>
-    <aside class="sidebar">
-      <div class="brand">
-        <span class="brand-mark">MR</span>
-        <div>
-          <strong>MarathonRunner</strong>
-          <small>Enterprise Control Plane</small>
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="login-overlay">
+      <div class="login-card">
+        <div class="login-logo">
+          <span class="brand-mark">MR</span>
+          <div>
+            <strong>MarathonRunner</strong>
+            <small>Enterprise</small>
+          </div>
+        </div>
+        <h2>Sign In</h2>
+        <form id="loginForm">
+          <div class="login-field">
+            <label for="loginUsername">Username</label>
+            <input type="text" id="loginUsername" placeholder="Enter your username" required autofocus>
+          </div>
+          <div class="login-field">
+            <label for="loginPassword">Password</label>
+            <input type="password" id="loginPassword" placeholder="Enter your password" required>
+          </div>
+          <div id="loginError" class="login-error" style="display:none;"></div>
+          <button type="submit" class="login-btn">Sign In</button>
+          <p class="login-hint">Default: admin / marathonrunner</p>
+        </form>
+      </div>
+    </div>
+
+    <!-- App Shell -->
+    <div id="appShell" style="display:none;">
+
+    <!-- Top Navigation Bar -->
+    <section id="overview" class="topbar">
+      <div>
+        <p class="eyebrow">Docker-deployable performance engineering platform</p>
+        <h1>Enterprise test control, governed execution, AI result intelligence.</h1>
+      </div>
+      <div class="topbar-right">
+        <div id="health" class="status">Checking health...</div>
+        <div class="user-info">
+          <span id="userAvatar" class="user-avatar">EN</span>
+          <span id="userName"></span>
+          <select id="userSelect" class="user-select">
+            <option value="admin">Administrator</option>
+            <option value="performance_lead">Performance Lead</option>
+            <option value="engineer" selected>Test Engineer</option>
+            <option value="viewer">Stakeholder Viewer</option>
+          </select>
+          <button id="logoutBtn" class="btn-logout" title="Sign out">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
         </div>
       </div>
-      <nav>
-        <a href="#overview">Overview</a>
-        <a href="#runs">Execution</a>
-        <a href="#fleet">Fleet</a>
-        <a href="#results">Results</a>
-        <a href="#ai">AI</a>
-        <a href="#governance">Governance</a>
-      </nav>
-    </aside>
+    </section>
 
-    <main>
-      <section id="overview" class="topbar">
+    <!-- Metrics Row -->
+    <section class="metrics">
+      <article>
+        <span id="projectCount">0</span>
+        <small>Projects</small>
+      </article>
+      <article>
+        <span id="scenarioCount">0</span>
+        <small>Scenarios</small>
+      </article>
+      <article>
+        <span id="runCount">0</span>
+        <small>Runs</small>
+      </article>
+      <article>
+        <span id="insightCount">0</span>
+        <small>AI Insights</small>
+      </article>
+      <article>
+        <span id="policyCount">0</span>
+        <small>Policies</small>
+      </article>
+      <article>
+        <span id="riskCount">0</span>
+        <small>Warnings</small>
+      </article>
+    </section>
+
+    <!-- Summary Stats -->
+    <section class="metrics" style="margin-top:8px;">
+      <article>
+        <span id="avgP95">-</span>
+        <small>Avg p95</small>
+      </article>
+      <article>
+        <span id="avgApdex">-</span>
+        <small>Avg Apdex</small>
+      </article>
+      <article>
+        <span id="passRate">-</span>
+        <small>Pass Rate</small>
+      </article>
+      <article>
+        <span id="totalRuns">0</span>
+        <small>Total Runs</small>
+      </article>
+    </section>
+
+    <!-- Live Monitoring -->
+    <section id="live" class="panel">
+      <div class="panel-heading">
         <div>
-          <p class="eyebrow">Docker-deployable performance engineering platform</p>
-          <h1>Enterprise test control, governed execution, AI result intelligence.</h1>
+          <p class="eyebrow">Real-time execution</p>
+          <h2>Live Runs <small id="liveStatus">0 active</small></h2>
         </div>
-        <div id="health" class="status">Checking health...</div>
-      </section>
+      </div>
+      <div id="liveList" class="list"></div>
+    </section>
 
-      <section class="metrics">
-        <article>
-          <span id="projectCount">0</span>
-          <small>Projects</small>
-        </article>
-        <article>
-          <span id="scenarioCount">0</span>
-          <small>Scenarios</small>
-        </article>
-        <article>
-          <span id="runCount">0</span>
-          <small>Runs</small>
-        </article>
-        <article>
-          <span id="insightCount">0</span>
-          <small>AI Insights</small>
-        </article>
-        <article>
-          <span id="policyCount">0</span>
-          <small>Policies</small>
-        </article>
-        <article>
-          <span id="riskCount">0</span>
-          <small>Warnings</small>
-        </article>
-      </section>
-
-      <section id="runs" class="panel">
+    <!-- Charts Row -->
+    <section class="split">
+      <div class="panel">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">Execution control</p>
-            <h2>Test Runs</h2>
-          </div>
-          <div class="actions">
-            <button id="createRunButton" type="button">Create Run</button>
-            <button id="refreshButton" type="button" class="secondary">Refresh</button>
+            <p class="eyebrow">Performance trend</p>
+            <h2>p95 Latency Trend</h2>
           </div>
         </div>
-        <div id="runsList" class="list"></div>
-      </section>
-
-      <section id="fleet" class="split">
-        <div class="panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Execution fleet</p>
-              <h2>Load Generator Pools</h2>
-            </div>
-          </div>
-          <div id="poolList" class="list"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Target readiness</p>
-              <h2>Environments</h2>
-            </div>
-          </div>
-          <div id="environmentList" class="list"></div>
-        </div>
-      </section>
-
-      <section id="results" class="panel">
+        <div style="height:260px;padding:12px;"><canvas id="trendChart"></canvas></div>
+      </div>
+      <div class="panel">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">Evidence repository</p>
-            <h2>Latest Results</h2>
+            <p class="eyebrow">Run distribution</p>
+            <h2>Status Breakdown</h2>
           </div>
         </div>
-        <div id="resultList" class="result-grid"></div>
-      </section>
+        <div style="height:260px;padding:12px;"><canvas id="statusChart"></canvas></div>
+      </div>
+    </section>
 
-      <section id="ai" class="panel">
+    <section class="split">
+      <div class="panel">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">AI-assisted performance engineering</p>
-            <h2>Insights</h2>
+            <p class="eyebrow">Engine usage</p>
+            <h2>By Engine</h2>
           </div>
         </div>
-        <div id="aiList" class="list"></div>
-      </section>
+        <div style="height:260px;padding:12px;"><canvas id="engineChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Quality gates</p>
+            <h2>Quality Gate Results</h2>
+          </div>
+        </div>
+        <div style="height:260px;padding:12px;"><canvas id="qualityChart"></canvas></div>
+      </div>
+    </section>
 
-      <section id="governance" class="split">
-        <div class="panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Guardrails</p>
-              <h2>Policies</h2>
+    <!-- Execution / Runs -->
+    <section id="runs" class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Execution control</p>
+          <h2>Test Runs</h2>
+        </div>
+        <div class="actions">
+          <button id="createRunButton" type="button" data-form="run">+ Run</button>
+          <button id="refreshButton" type="button" class="secondary">Refresh</button>
+        </div>
+      </div>
+      <!-- Filters -->
+      <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--border);">
+        <select id="filterEngine" class="select" style="font-size:13px;">
+          <option value="">All Engines</option>
+          <option value="JMeter">JMeter</option>
+          <option value="k6">k6</option>
+          <option value="Gatling">Gatling</option>
+          <option value="Locust">Locust</option>
+          <option value="Playwright">Playwright</option>
+        </select>
+        <select id="filterStatus" class="select" style="font-size:13px;">
+          <option value="">All Statuses</option>
+          <option value="completed">Completed</option>
+          <option value="running">Running</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="ready">Ready</option>
+          <option value="draft">Draft</option>
+        </select>
+        <input id="filterSearch" type="text" placeholder="Search runs..." style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px;flex:1;">
+        <button id="filterApply" type="button" class="btn btn-sm btn-primary">Apply</button>
+        <button id="filterClear" type="button" class="btn btn-sm btn-secondary">Clear</button>
+      </div>
+      <div id="runsList" class="list"></div>
+    </section>
+
+    <!-- Run Comparison -->
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Baseline comparison</p>
+          <h2>Compare Runs</h2>
+        </div>
+      </div>
+      <div style="padding:16px;display:flex;gap:12px;align-items:center;">
+        <select id="compareRun1" class="select"><option value="">Baseline run...</option></select>
+        <select id="compareRun2" class="select"><option value="">Current run...</option></select>
+        <button id="compareButton" type="button" class="btn btn-sm btn-primary">Compare</button>
+      </div>
+      <div id="compareResult" style="padding:0 16px 16px;"></div>
+    </section>
+
+    <!-- Fleet -->
+    <section id="fleet" class="split">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Execution fleet</p>
+            <h2>Load Generator Pools</h2>
+          </div>
+          <button type="button" data-form="pool" class="btn btn-sm btn-primary">+ Pool</button>
+        </div>
+        <div id="poolList" class="list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Target readiness</p>
+            <h2>Environments</h2>
+          </div>
+          <button type="button" data-form="environment" class="btn btn-sm btn-primary">+ Environment</button>
+        </div>
+        <div id="environmentList" class="list"></div>
+      </div>
+    </section>
+
+    <!-- Projects & Scenarios -->
+    <section class="split">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Workload portfolio</p>
+            <h2>Projects</h2>
+          </div>
+          <button type="button" data-form="project" class="btn btn-sm btn-primary">+ Project</button>
+        </div>
+        <div id="projectList" class="list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Test definitions</p>
+            <h2>Scenarios</h2>
+          </div>
+          <button type="button" data-form="scenario" class="btn btn-sm btn-primary">+ Scenario</button>
+        </div>
+        <div id="scenarioList" class="list"></div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section id="results" class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Evidence repository</p>
+          <h2>Latest Results</h2>
+        </div>
+      </div>
+      <div id="resultList" class="result-grid"></div>
+    </section>
+
+    <!-- AI Insights -->
+    <section id="ai" class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">AI-assisted performance engineering</p>
+          <h2>Insights</h2>
+        </div>
+      </div>
+      <div id="aiList" class="list"></div>
+    </section>
+
+    <!-- Governance -->
+    <section id="governance" class="split">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Guardrails</p>
+            <h2>Policies</h2>
+          </div>
+          <button type="button" data-form="policy" class="btn btn-sm btn-primary">+ Policy</button>
+        </div>
+        <div id="policyList" class="list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Audit trail</p>
+            <h2>Recent Events</h2>
+          </div>
+        </div>
+        <div id="auditList" class="list compact"></div>
+      </div>
+    </section>
+
+    <!-- Trends -->
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Performance baselines</p>
+          <h2>Trend Analysis</h2>
+        </div>
+      </div>
+      <div id="trendSummary" class="metrics"></div>
+      <div id="trendList" class="list" style="padding:16px;"></div>
+    </section>
+
+    <!-- Schedules -->
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Recurring tests</p>
+          <h2>Schedules</h2>
+        </div>
+        <button type="button" data-form="schedule" class="btn btn-sm btn-primary">+ Schedule</button>
+      </div>
+      <div id="scheduleList" class="list"></div>
+    </section>
+
+    <!-- Execution Windows & Baselines -->
+    <section class="split">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Time restrictions</p>
+            <h2>Execution Windows</h2>
+          </div>
+          <button type="button" data-form="execution_window" class="btn btn-sm btn-primary">+ Window</button>
+        </div>
+        <div id="windowStatus" style="padding:12px 16px;border-bottom:1px solid var(--border);"></div>
+        <div id="windowList" class="list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Approved references</p>
+            <h2>Baselines</h2>
+          </div>
+        </div>
+        <div id="baselineList" class="list"></div>
+      </div>
+    </section>
+
+    <!-- Templates & Load Profiles -->
+    <section class="split">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Quick start</p>
+            <h2>Run Templates</h2>
+          </div>
+        </div>
+        <div id="templateList" class="list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Patterns</p>
+            <h2>Load Profiles</h2>
+          </div>
+        </div>
+        <div id="loadProfileList" class="list"></div>
+      </div>
+    </section>
+
+    <!-- Webhooks & Applications -->
+    <section class="split">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Notifications</p>
+            <h2>Webhooks</h2>
+          </div>
+          <button type="button" data-form="webhook" class="btn btn-sm btn-primary">+ Webhook</button>
+        </div>
+        <div id="webhookList" class="list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Service health</p>
+            <h2>Applications</h2>
+          </div>
+          <button type="button" data-form="application" class="btn btn-sm btn-primary">+ Application</button>
+        </div>
+        <div id="applicationList" class="list"></div>
+      </div>
+    </section>
+
+    <!-- Users -->
+    <section id="administration" class="panel admin-only admin-section">
+      <div class="admin-toolbar sticky-toolbar">
+        <div>
+          <p class="eyebrow">Administration</p>
+          <h2>Access Control</h2>
+        </div>
+        <div class="admin-header-actions">
+          <button type="button" data-form="user" class="btn btn-sm btn-primary">+ User</button>
+        </div>
+      </div>
+      <div class="admin-card-body">
+        <div id="userList" class="user-management-grid"></div>
+      </div>
+    </section>
+
+    <!-- Impact Analysis -->
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Change impact</p>
+          <h2>Impact Analysis</h2>
+        </div>
+      </div>
+      <div id="impactSummary" style="padding:12px 16px;border-bottom:1px solid var(--border);"></div>
+      <div id="impactList" class="list"></div>
+    </section>
+
+    <!-- Admin Dashboard -->
+    <section id="admin-dashboard" class="panel admin-only admin-section">
+      <div class="admin-toolbar sticky-toolbar">
+        <div>
+          <p class="eyebrow">Infrastructure</p>
+          <h2>Admin Dashboard</h2>
+        </div>
+        <div class="admin-header-actions">
+          <button id="refreshAdminBtn" type="button" class="btn btn-sm btn-secondary">Refresh</button>
+        </div>
+      </div>
+
+      <div class="admin-grid">
+        <article class="admin-card admin-card-large">
+          <div class="admin-card-header">
+            <h2>Host Fleet <span id="hostsCount" class="admin-badge"></span></h2>
+          </div>
+          <div class="admin-card-body">
+            <div class="hosts-gauges">
+              <div class="gauge-container"><span class="gauge-label">Status</span><div class="gauge-wrapper"><canvas id="statusGauge" width="120" height="120"></canvas></div></div>
+              <div class="gauge-container"><span class="gauge-label">State</span><div class="gauge-wrapper"><canvas id="stateGauge" width="120" height="120"></canvas></div></div>
+              <div class="gauge-container"><span class="gauge-label">Purpose</span><div class="gauge-wrapper"><canvas id="purposeGauge" width="120" height="120"></canvas></div></div>
+              <div class="gauge-container"><span class="gauge-label">Type</span><div class="gauge-wrapper"><canvas id="typeGauge" width="120" height="120"></canvas></div></div>
             </div>
           </div>
-          <div id="policyList" class="list"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Audit trail</p>
-              <h2>Recent Events</h2>
+        </article>
+
+        <article class="admin-card admin-card-small">
+          <div class="admin-card-header">
+            <h2>Notifications</h2>
+          </div>
+          <div class="admin-card-body">
+            <div class="notification-alert">
+              <div class="notification-icon warning">!</div>
+              <div class="notification-content">
+                <p>Review active runs and host capacity before approving high-risk executions.</p>
+                <span class="notification-time">Administration</span>
+              </div>
             </div>
           </div>
-          <div id="auditList" class="list compact"></div>
+        </article>
+      </div>
+
+      <div class="admin-grid">
+        <article class="admin-card admin-card-large">
+          <div class="admin-card-header">
+            <h2>Concurrent Runs (Last 7 Days)</h2>
+          </div>
+          <div class="admin-card-body chart-card">
+            <canvas id="concurrentRunsChart"></canvas>
+          </div>
+        </article>
+        <article class="admin-card admin-card-small">
+          <div class="admin-card-header">
+            <h2>Project Limits</h2>
+          </div>
+          <div class="admin-card-body chart-card">
+            <canvas id="projectLimitChart"></canvas>
+          </div>
+        </article>
+      </div>
+
+      <article class="admin-card">
+        <div class="admin-card-header">
+          <h2>Run History</h2>
+          <div class="filter-controls">
+            <input id="adminRunSearch" type="text" placeholder="Search runs..." class="select">
+          </div>
         </div>
-      </section>
-    </main>
+        <div class="admin-card-body">
+          <div class="runs-tabs">
+            <button class="runs-tab active" data-runs-tab="finished">Last Finished</button>
+            <button class="runs-tab" data-runs-tab="running">Currently Running</button>
+            <button class="runs-tab" data-runs-tab="scheduled">Scheduled</button>
+          </div>
+          <div id="adminRunsList"></div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Logs -->
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Container logs</p>
+          <h2>Run Logs</h2>
+        </div>
+      </div>
+      <div style="padding:16px;display:flex;gap:12px;align-items:center;">
+        <select id="logRunSelect" class="select"><option value="">Select a run...</option></select>
+        <button id="loadLogsButton" type="button" class="btn btn-sm btn-primary">Load Logs</button>
+      </div>
+      <pre id="logOutput" style="padding:16px;background:#1e1e1e;color:#d4d4d4;border-radius:0 0 8px 8px;max-height:300px;overflow:auto;font-size:12px;margin:0;">Select a run and click Load Logs.</pre>
+    </section>
+
+    </div><!-- /appShell -->
+
+    <!-- Modal -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modalTitle"></h3>
+          <button id="modalClose" type="button" class="modal-close">&times;</button>
+        </div>
+        <form id="entityForm" class="entity-form"></form>
+      </div>
+    </div>
 
     <script src="/app.js"></script>
   </body>

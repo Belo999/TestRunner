@@ -1,0 +1,1132 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "MarathonRunner Enterprise API",
+    "description": "Enterprise performance testing platform API with multi-engine execution, AI-assisted analysis, and governance.",
+    "version": "2.0.0",
+    "contact": {
+      "name": "MarathonRunner Support",
+      "email": "support@marathonrunner.local"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "System health check",
+        "description": "Returns system status, engine availability, and dependency health.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "System is healthy",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "tags": ["Dashboard"],
+        "summary": "Dashboard metrics",
+        "description": "Returns aggregated metrics for the dashboard view.",
+        "operationId": "getDashboard",
+        "responses": {
+          "200": {
+            "description": "Dashboard data",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DashboardResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "List all projects",
+        "operationId": "listProjects",
+        "responses": {
+          "200": {
+            "description": "List of projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "projects": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Project" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Projects"],
+        "summary": "Create a project",
+        "operationId": "createProject",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProjectCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Project created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project": { "$ref": "#/components/schemas/Project" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{id}": {
+      "put": {
+        "tags": ["Projects"],
+        "summary": "Update a project",
+        "operationId": "updateProject",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProjectUpdate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project": { "$ref": "#/components/schemas/Project" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Projects"],
+        "summary": "Delete a project",
+        "operationId": "deleteProject",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project deleted"
+          }
+        }
+      }
+    },
+    "/api/environments": {
+      "get": {
+        "tags": ["Environments"],
+        "summary": "List all environments",
+        "operationId": "listEnvironments",
+        "responses": {
+          "200": {
+            "description": "List of environments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "environments": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Environment" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Environments"],
+        "summary": "Create an environment",
+        "operationId": "createEnvironment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EnvironmentCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Environment created"
+          }
+        }
+      }
+    },
+    "/api/environments/{id}/readiness": {
+      "get": {
+        "tags": ["Environments"],
+        "summary": "Check environment readiness",
+        "description": "Performs readiness checks on an environment including Redis, Docker, and generator capacity.",
+        "operationId": "checkEnvironmentReadiness",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Readiness check results",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReadinessResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios": {
+      "get": {
+        "tags": ["Scenarios"],
+        "summary": "List all test scenarios",
+        "operationId": "listScenarios",
+        "responses": {
+          "200": {
+            "description": "List of scenarios",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "scenarios": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Scenario" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Scenarios"],
+        "summary": "Create a scenario",
+        "operationId": "createScenario",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ScenarioCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Scenario created"
+          }
+        }
+      }
+    },
+    "/api/pools": {
+      "get": {
+        "tags": ["Fleet"],
+        "summary": "List load generator pools",
+        "operationId": "listPools",
+        "responses": {
+          "200": {
+            "description": "List of pools",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pools": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Pool" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Fleet"],
+        "summary": "Create a load generator pool",
+        "operationId": "createPool",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PoolCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pool created"
+          }
+        }
+      }
+    },
+    "/api/policies": {
+      "get": {
+        "tags": ["Governance"],
+        "summary": "List governance policies",
+        "operationId": "listPolicies",
+        "responses": {
+          "200": {
+            "description": "List of policies"
+          }
+        }
+      }
+    },
+    "/api/runs": {
+      "get": {
+        "tags": ["Execution"],
+        "summary": "List test runs with optional filtering",
+        "operationId": "listRuns",
+        "parameters": [
+          {
+            "name": "engine",
+            "in": "query",
+            "description": "Filter by engine (JMeter, k6, Locust)",
+            "schema": { "type": "string", "enum": ["JMeter", "k6", "Locust"] }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by status",
+            "schema": { "type": "string", "enum": ["completed", "running", "failed", "ready", "pending_approval"] }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search in run name, project, or scenario",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runs": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Run" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Execution"],
+        "summary": "Create and queue a test run",
+        "operationId": "createRun",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RunCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Run created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run": { "$ref": "#/components/schemas/Run" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/active": {
+      "get": {
+        "tags": ["Execution"],
+        "summary": "Get currently active (running/queued) runs",
+        "operationId": "getActiveRuns",
+        "responses": {
+          "200": {
+            "description": "Active runs"
+          }
+        }
+      }
+    },
+    "/api/runs/compare": {
+      "get": {
+        "tags": ["Analysis"],
+        "summary": "Compare multiple runs side by side",
+        "operationId": "compareRuns",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "required": true,
+            "description": "Comma-separated run IDs to compare",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Comparison results with deltas"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}": {
+      "get": {
+        "tags": ["Execution"],
+        "summary": "Get run details",
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run details with results"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/live": {
+      "get": {
+        "tags": ["Monitoring"],
+        "summary": "Get live metrics for a running test",
+        "operationId": "getRunLive",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live metrics including container stats"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/logs": {
+      "get": {
+        "tags": ["Monitoring"],
+        "summary": "Get engine execution logs",
+        "operationId": "getRunLogs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Container logs"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/report": {
+      "get": {
+        "tags": ["Analysis"],
+        "summary": "Generate comprehensive run report",
+        "operationId": "getRunReport",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full report with metrics, SLA, baseline, and insights"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/approve": {
+      "post": {
+        "tags": ["Execution"],
+        "summary": "Approve a pending test run",
+        "operationId": "approveRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reviewer": { "type": "string" },
+                  "reason": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Run approved" }
+        }
+      }
+    },
+    "/api/runs/{id}/start": {
+      "post": {
+        "tags": ["Execution"],
+        "summary": "Start execution of an approved run",
+        "operationId": "startRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Run started" }
+        }
+      }
+    },
+    "/api/runs/{id}/complete": {
+      "post": {
+        "tags": ["Execution"],
+        "summary": "Manually complete a running test",
+        "operationId": "completeRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Run completed with results" }
+        }
+      }
+    },
+    "/api/runs/{id}/cancel": {
+      "post": {
+        "tags": ["Execution"],
+        "summary": "Cancel a running test and stop its container",
+        "operationId": "cancelRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Run cancelled" }
+        }
+      }
+    },
+    "/api/results": {
+      "get": {
+        "tags": ["Results"],
+        "summary": "List test results",
+        "operationId": "listResults",
+        "responses": {
+          "200": {
+            "description": "List of results"
+          }
+        }
+      }
+    },
+    "/api/trends": {
+      "get": {
+        "tags": ["Analysis"],
+        "summary": "Get trend analysis data",
+        "description": "Returns scenario-level trends with baseline comparison and regression detection.",
+        "operationId": "getTrends",
+        "responses": {
+          "200": {
+            "description": "Trend data with summaries"
+          }
+        }
+      }
+    },
+    "/api/trends/insights": {
+      "get": {
+        "tags": ["Analysis"],
+        "summary": "Get AI-generated trend insights",
+        "operationId": "getTrendInsights",
+        "responses": {
+          "200": {
+            "description": "Trend insights"
+          }
+        }
+      }
+    },
+    "/api/schedules": {
+      "get": {
+        "tags": ["Scheduling"],
+        "summary": "List test schedules",
+        "operationId": "listSchedules",
+        "responses": {
+          "200": {
+            "description": "List of schedules"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Scheduling"],
+        "summary": "Create a recurring test schedule",
+        "operationId": "createSchedule",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ScheduleCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Schedule created"
+          }
+        }
+      }
+    },
+    "/api/users": {
+      "get": {
+        "tags": ["Administration"],
+        "summary": "List all users",
+        "operationId": "listUsers",
+        "responses": {
+          "200": {
+            "description": "List of users with roles and permissions"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Administration"],
+        "summary": "Create a new user",
+        "operationId": "createUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created"
+          }
+        }
+      }
+    },
+    "/api/users/{id}": {
+      "put": {
+        "tags": ["Administration"],
+        "summary": "Update a user",
+        "operationId": "updateUser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserUpdate" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "User updated" }
+        }
+      },
+      "delete": {
+        "tags": ["Administration"],
+        "summary": "Delete a user",
+        "operationId": "deleteUser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "User deleted" }
+        }
+      }
+    },
+    "/api/roles": {
+      "get": {
+        "tags": ["Administration"],
+        "summary": "List available roles and permissions",
+        "operationId": "listRoles",
+        "responses": {
+          "200": {
+            "description": "Role definitions"
+          }
+        }
+      }
+    },
+    "/api/audit": {
+      "get": {
+        "tags": ["Governance"],
+        "summary": "Get audit trail",
+        "operationId": "getAudit",
+        "responses": {
+          "200": {
+            "description": "Recent audit events"
+          }
+        }
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Get notifications",
+        "operationId": "getNotifications",
+        "responses": {
+          "200": {
+            "description": "Recent notifications"
+          }
+        }
+      }
+    },
+    "/api/roadmap": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Get feature roadmap",
+        "operationId": "getRoadmap",
+        "responses": {
+          "200": {
+            "description": "Feature roadmap by phase"
+          }
+        }
+      }
+    },
+    "/api/ai/recommendations": {
+      "get": {
+        "tags": ["AI"],
+        "summary": "Get AI recommendations and insights",
+        "operationId": "getAIRecommendations",
+        "responses": {
+          "200": {
+            "description": "AI insights with evidence and recommendations"
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Login and get JWT token",
+        "description": "Authenticate with username and receive a JWT token for authenticated requests.",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials"
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Get current user info",
+        "description": "Returns the authenticated user's information from the JWT token.",
+        "operationId": "getCurrentUser",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Current user info"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/worker/tick": {
+      "post": {
+        "tags": ["Worker"],
+        "summary": "Trigger worker tick (worker mode only)",
+        "operationId": "workerTick",
+        "responses": {
+          "200": {
+            "description": "Worker tick summary"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "JWT Token. Format: `Bearer <token>`"
+      }
+    },
+    "schemas": {
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "owner": { "type": "string" },
+          "business_unit": { "type": "string" },
+          "risk_tier": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProjectCreate": {
+        "type": "object",
+        "required": ["name", "owner", "business_unit", "risk_tier"],
+        "properties": {
+          "name": { "type": "string" },
+          "owner": { "type": "string" },
+          "business_unit": { "type": "string" },
+          "risk_tier": { "type": "string", "enum": ["low", "medium", "high", "critical"] }
+        }
+      },
+      "ProjectUpdate": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "owner": { "type": "string" },
+          "business_unit": { "type": "string" },
+          "risk_tier": { "type": "string" }
+        }
+      },
+      "Environment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "classification": { "type": "string" },
+          "readiness_status": { "type": "string" },
+          "service_virtualization_enabled": { "type": "integer" },
+          "data_residency": { "type": "string" },
+          "updated_at": { "type": "string" }
+        }
+      },
+      "EnvironmentCreate": {
+        "type": "object",
+        "required": ["name", "region", "classification", "readiness_status", "data_residency"],
+        "properties": {
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "classification": { "type": "string" },
+          "readiness_status": { "type": "string" },
+          "service_virtualization_enabled": { "type": "integer", "default": 0 },
+          "data_residency": { "type": "string" }
+        }
+      },
+      "ReadinessResponse": {
+        "type": "object",
+        "properties": {
+          "environmentId": { "type": "integer" },
+          "environmentName": { "type": "string" },
+          "region": { "type": "string" },
+          "ready": { "type": "boolean" },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "status": { "type": "string" },
+                "detail": { "type": "string" }
+              }
+            }
+          },
+          "checkedAt": { "type": "string" }
+        }
+      },
+      "Scenario": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "project_id": { "type": "integer" },
+          "name": { "type": "string" },
+          "engine": { "type": "string", "enum": ["JMeter", "k6", "Locust", "Gatling", "Playwright"] },
+          "test_type": { "type": "string" },
+          "workload_mix": { "type": "string" },
+          "script_repository": { "type": "string" },
+          "target_endpoint": { "type": "string" },
+          "sla_p95_ms": { "type": "integer" },
+          "max_error_rate": { "type": "number" },
+          "created_at": { "type": "string" }
+        }
+      },
+      "ScenarioCreate": {
+        "type": "object",
+        "required": ["project_id", "name", "engine", "test_type", "workload_mix", "script_repository", "target_endpoint", "sla_p95_ms", "max_error_rate"],
+        "properties": {
+          "project_id": { "type": "integer" },
+          "name": { "type": "string" },
+          "engine": { "type": "string" },
+          "test_type": { "type": "string" },
+          "workload_mix": { "type": "string" },
+          "script_repository": { "type": "string" },
+          "target_endpoint": { "type": "string" },
+          "sla_p95_ms": { "type": "integer" },
+          "max_error_rate": { "type": "number" }
+        }
+      },
+      "Pool": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "engines": { "type": "array", "items": { "type": "string" } },
+          "max_vusers": { "type": "integer" },
+          "status": { "type": "string" },
+          "current_reservation": { "type": "integer" },
+          "updated_at": { "type": "string" }
+        }
+      },
+      "PoolCreate": {
+        "type": "object",
+        "required": ["name", "region", "max_vusers"],
+        "properties": {
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "engines": { "type": "string", "description": "JSON array of engine names" },
+          "max_vusers": { "type": "integer" },
+          "status": { "type": "string", "default": "healthy" }
+        }
+      },
+      "Run": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "project_id": { "type": "integer" },
+          "scenario_id": { "type": "integer" },
+          "environment_id": { "type": "integer" },
+          "pool_id": { "type": "integer" },
+          "name": { "type": "string" },
+          "engine": { "type": "string" },
+          "load_profile": { "type": "string" },
+          "target_vusers": { "type": "integer" },
+          "duration_minutes": { "type": "integer" },
+          "status": { "type": "string", "enum": ["draft", "ready", "pending_approval", "approved", "queued", "running", "completed", "failed", "cancelled"] },
+          "quality_gate": { "type": "string" },
+          "risk_score": { "type": "integer" },
+          "correlation_id": { "type": "string" },
+          "ai_summary": { "type": "string" },
+          "execution_id": { "type": "string" },
+          "created_at": { "type": "string" },
+          "started_at": { "type": "string" },
+          "completed_at": { "type": "string" },
+          "result": { "$ref": "#/components/schemas/RunResult" }
+        }
+      },
+      "RunCreate": {
+        "type": "object",
+        "required": ["scenarioId", "environmentId"],
+        "properties": {
+          "scenarioId": { "type": "integer" },
+          "environmentId": { "type": "integer" },
+          "engine": { "type": "string" },
+          "name": { "type": "string" },
+          "targetVusers": { "type": "integer", "default": 1000 },
+          "durationMinutes": { "type": "integer", "default": 30 },
+          "loadProfile": { "type": "string" }
+        }
+      },
+      "RunResult": {
+        "type": "object",
+        "properties": {
+          "run_id": { "type": "integer" },
+          "p50_ms": { "type": "integer" },
+          "p95_ms": { "type": "integer" },
+          "p99_ms": { "type": "integer" },
+          "throughput_rps": { "type": "number" },
+          "error_rate": { "type": "number" },
+          "apdex": { "type": "number" },
+          "cpu_peak": { "type": "number" },
+          "memory_peak": { "type": "number" },
+          "redis_latency_ms": { "type": "integer" },
+          "db_cpu_peak": { "type": "number" },
+          "artifact_path": { "type": "string" },
+          "created_at": { "type": "string" }
+        }
+      },
+      "ScheduleCreate": {
+        "type": "object",
+        "required": ["name", "scenario_id", "environment_id", "target_vusers", "duration_minutes", "load_profile", "cron_expression"],
+        "properties": {
+          "name": { "type": "string" },
+          "scenario_id": { "type": "integer" },
+          "environment_id": { "type": "integer" },
+          "target_vusers": { "type": "integer" },
+          "duration_minutes": { "type": "integer" },
+          "load_profile": { "type": "string" },
+          "cron_expression": { "type": "string", "description": "Cron format: minute hour day month weekday" },
+          "enabled": { "type": "integer", "default": 1 }
+        }
+      },
+      "UserCreate": {
+        "type": "object",
+        "required": ["username", "display_name", "role"],
+        "properties": {
+          "username": { "type": "string" },
+          "display_name": { "type": "string" },
+          "role": { "type": "string", "enum": ["admin", "performance_lead", "engineer", "viewer"] },
+          "email": { "type": "string" }
+        }
+      },
+      "UserUpdate": {
+        "type": "object",
+        "properties": {
+          "display_name": { "type": "string" },
+          "role": { "type": "string" },
+          "email": { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["username"],
+        "properties": {
+          "username": { "type": "string", "description": "Username to login with" }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string", "description": "JWT token for authenticated requests" },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "integer" },
+              "username": { "type": "string" },
+              "display_name": { "type": "string" },
+              "role": { "type": "string" },
+              "roleLabel": { "type": "string" },
+              "permissions": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    { "name": "System", "description": "Health, notifications, and system info" },
+    { "name": "Dashboard", "description": "Dashboard metrics" },
+    { "name": "Projects", "description": "Project management" },
+    { "name": "Environments", "description": "Environment management and readiness" },
+    { "name": "Scenarios", "description": "Test scenario definitions" },
+    { "name": "Fleet", "description": "Load generator pools" },
+    { "name": "Execution", "description": "Test run lifecycle" },
+    { "name": "Monitoring", "description": "Live run monitoring" },
+    { "name": "Analysis", "description": "Trends, comparison, and reports" },
+    { "name": "Results", "description": "Test results" },
+    { "name": "Scheduling", "description": "Recurring test schedules" },
+    { "name": "Governance", "description": "Policies and audit" },
+    { "name": "AI", "description": "AI insights and recommendations" },
+    { "name": "Administration", "description": "User and role management" },
+    { "name": "Worker", "description": "Background worker" }
+  ]
+}

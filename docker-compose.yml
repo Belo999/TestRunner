@@ -7,18 +7,66 @@ services:
     environment:
       MARATHONRUNNER_HOST: 0.0.0.0
       MARATHONRUNNER_PORT: 8080
+      MARATHONRUNNER_DB_BACKEND: postgresql
       MARATHONRUNNER_DB_PATH: /app/data/marathonrunner.db
-      POSTGRES_HOST: postgres
-      REDIS_HOST: redis
+      MARATHONRUNNER_SERVICE_ROLE: api
+      MARATHONRUNNER_REDIS_ENABLED: "1"
+      MARATHONRUNNER_OBJECT_STORAGE_ENABLED: "1"
       OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_BUCKET: marathonrunner-artifacts
+      OBJECT_STORAGE_ACCESS_KEY: marathonrunner
+      OBJECT_STORAGE_SECRET_KEY: marathonrunner123
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: marathonrunner
+      POSTGRES_PASSWORD: marathonrunner
+      POSTGRES_DB: marathonrunner
+      REDIS_HOST: redis
     ports:
       - "8080:8080"
     volumes:
-      - marathonrunner-data:/app/data
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
-      - postgres
-      - redis
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+
+  marathonrunner-worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: marathonrunner-worker
+    environment:
+      MARATHONRUNNER_DB_BACKEND: postgresql
+      MARATHONRUNNER_DB_PATH: /app/data/marathonrunner.db
+      MARATHONRUNNER_SERVICE_ROLE: worker
+      MARATHONRUNNER_WORKER_INTERVAL_SECONDS: "5"
+      MARATHONRUNNER_WORKER_COMPLETE_SECONDS: "300"
+      MARATHONRUNNER_HOST_DATA_DIR: ${PWD}/data
+      MARATHONRUNNER_REDIS_ENABLED: "1"
+      MARATHONRUNNER_OBJECT_STORAGE_ENABLED: "1"
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_BUCKET: marathonrunner-artifacts
+      OBJECT_STORAGE_ACCESS_KEY: marathonrunner
+      OBJECT_STORAGE_SECRET_KEY: marathonrunner123
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: marathonrunner
+      POSTGRES_PASSWORD: marathonrunner
+      POSTGRES_DB: marathonrunner
+      REDIS_HOST: redis
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      marathonrunner-app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
@@ -31,6 +79,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marathonrunner -d marathonrunner"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine

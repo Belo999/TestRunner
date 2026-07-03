@@ -1,0 +1,12 @@
+.git
+.gitignore
+.agents
+.codex
+.mimocode
+Implementation
+scripts
+README.md
+data/*.db
+data/artifacts
+__pycache__
+*.pyc
