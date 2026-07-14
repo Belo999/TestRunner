@@ -638,6 +638,12 @@ def migrate_database(connection: DatabaseConnection) -> None:
         if "password_salt" not in user_cols:
             connection.execute("ALTER TABLE users ADD COLUMN password_salt TEXT")
 
+        for table in ("environments", "load_generator_pools"):
+            cursor = connection.execute(f"PRAGMA table_info({table})")
+            cols = {row["name"] for row in cursor.fetchall()}
+            if "created_at" not in cols:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN created_at TEXT")
+
 
 def initialize_database() -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)

@@ -680,9 +680,13 @@ def create_entity(table: str, payload: dict[str, Any], required: list[str], defa
     values = [payload[field] for field in required]
     values += [payload.get(k, v) for k, v in (defaults or {}).items()]
     values.append(now)
-    placeholders = ", ".join(["?"] * len(columns))
-    col_names = ", ".join(columns)
     with connect_db() as connection:
+        table_cols = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+        if "updated_at" in table_cols and "updated_at" not in columns:
+            columns.append("updated_at")
+            values.append(now)
+        placeholders = ", ".join(["?"] * len(columns))
+        col_names = ", ".join(columns)
         cursor = connection.execute(f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})", values)
         connection.commit()
         row = connection.execute(f"SELECT * FROM {table} WHERE id = ?", (cursor.lastrowid,)).fetchone()
@@ -1335,9 +1339,6 @@ def check_environment_readiness(environment_id: int) -> dict[str, Any]:
     if not docker_ok:
         all_ready = False
 
-    pools = connection.execute(
-        "SELECT * FROM load_generator_pools WHERE status = 'healthy'"
-    ).fetchall() if 'connection' in dir() else []
     with connect_db() as conn:
         pools = conn.execute("SELECT name, max_vusers, current_reservation FROM load_generator_pools WHERE status = 'healthy'").fetchall()
 
@@ -1489,7 +1490,7 @@ def get_execution_windows() -> list[dict[str, Any]]:
 
 def create_execution_window(payload: dict[str, Any]) -> dict[str, Any]:
     required = ["name", "type", "start_hour", "end_hour"]
-    missing = [f for f in required if not payload.get(f)]
+    missing = [f for f in required if f not in payload]
     if missing:
         raise ValueError(f"Missing required fields: {', '.join(missing)}")
     if payload["type"] not in ("window", "blackout"):
@@ -1828,27 +1829,28 @@ def trigger_webhooks(event: str, payload: dict[str, Any]) -> int:
             (event,),
         ).fetchall()
 
-    for wh in webhooks:
-        wh = dict(wh)
-        try:
-            data = json.dumps({
-                "event": event,
-                "timestamp": utc_now(),
-                "data": payload,
-            }).encode("utf-8")
+        for wh in webhooks:
+            wh = dict(wh)
+            try:
+                data = json.dumps({
+                    "event": event,
+                    "timestamp": utc_now(),
+                    "data": payload,
+                }).encode("utf-8")
 
-            headers = {"Content-Type": "application/json"}
-            if wh.get("secret"):
-                signature = hmac.new(wh["secret"].encode(), data, hashlib.sha256).hexdigest()
-                headers["X-Webhook-Signature"] = f"sha256={signature}"
+                headers = {"Content-Type": "application/json"}
+                if wh.get("secret"):
+                    signature = hmac.new(wh["secret"].encode(), data, hashlib.sha256).hexdigest()
+                    headers["X-Webhook-Signature"] = f"sha256={signature}"
 
-            req = urllib.request.Request(wh["url"], data=data, headers=headers, method="POST")
-            urllib.request.urlopen(req, timeout=10)
-            triggered += 1
-            audit(connection, "webhook_triggered", "webhook", wh["id"], {"event": event, "url": wh["url"]})
-        except Exception as exc:
-            audit(connection, "webhook_failed", "webhook", wh["id"], {"event": event, "error": str(exc)})
+                req = urllib.request.Request(wh["url"], data=data, headers=headers, method="POST")
+                urllib.request.urlopen(req, timeout=10)
+                triggered += 1
+                audit(connection, "webhook_triggered", "webhook", wh["id"], {"event": event, "url": wh["url"]})
+            except Exception as exc:
+                audit(connection, "webhook_failed", "webhook", wh["id"], {"event": event, "error": str(exc)})
 
+        connection.commit()
     return triggered
 
 

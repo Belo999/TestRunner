@@ -359,6 +359,8 @@ class MarathonRunnerHandler(BaseHTTPRequestHandler):
                     self.send_json({"error": "Invalid credentials"}, HTTPStatus.UNAUTHORIZED)
                     return
                 token = generate_token(user["id"], user["username"], user["role"], user["display_name"])
+                if isinstance(token, bytes):
+                    token = token.decode("utf-8")
                 self.send_json({
                     "token": token,
                     "user": {
