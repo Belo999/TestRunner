@@ -415,3 +415,41 @@ class TestConnectPostgresql:
                 sys.modules["psycopg2"] = old
             else:
                 sys.modules.pop("psycopg2", None)
+
+
+class TestPgDatabaseConnection:
+    def test_execute_postgresql(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.description = None
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        db = DatabaseConnection(mock_conn, "postgresql")
+        db.execute("SELECT * FROM t WHERE id = %s", (1,))
+        mock_cursor.execute.assert_called_once()
+
+    def test_executescript_postgresql(self):
+        mock_cursor = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        db = DatabaseConnection(mock_conn, "postgresql")
+        db.executescript("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1);")
+        assert mock_cursor.execute.call_count == 2
+        mock_conn.commit.assert_called_once()
+
+    def test_lastrowid_none(self):
+        from apps.api.database import PgResultWrapper
+        cursor = MagicMock()
+        cursor.lastrowid = None
+        cursor.description = None
+        wrapper = PgResultWrapper(cursor)
+        assert wrapper.lastrowid is None
+
+
+class TestMigrateDatabasePostgresql:
+    def test_skips_on_postgresql(self):
+        from apps.api.database import migrate_database, DatabaseConnection
+        mock_conn = MagicMock()
+        db = DatabaseConnection(mock_conn, "postgresql")
+        migrate_database(db)  # Should not raise, just skip PRAGMA checks

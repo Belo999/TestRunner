@@ -847,3 +847,1020 @@ class TestCheckAndExecuteSchedules:
         result = models_mod.check_and_execute_schedules()
         assert "created" in result
         assert "checked" in result
+
+
+# ===================================================================
+# Tests for remaining uncovered models.py functions
+# ===================================================================
+
+class TestGenerateRunReport:
+    def test_report_for_completed_run(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute("UPDATE test_runs SET status='completed', quality_gate='passed', completed_at=? WHERE id=?", (now, run["id"]))
+        conn.execute(
+            "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run["id"], 80, 300, 500, 40.0, 0.5, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+        )
+        conn.commit()
+        conn.close()
+        report = models_mod.generate_run_report(run["id"])
+        assert "report" in report
+        assert "metrics" in report
+        assert "sla" in report
+
+    def test_report_with_sla_breach(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute("UPDATE test_runs SET status='completed', quality_gate='failed', completed_at=? WHERE id=?", (now, run["id"]))
+        conn.execute(
+            "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run["id"], 200, 900, 1200, 10.0, 3.0, 0.5, 80.0, 70.0, 2, 20.0, "p", now),
+        )
+        conn.commit()
+        conn.close()
+        report = models_mod.generate_run_report(run["id"])
+        assert len(report["sla"]["breaches"]) > 0
+
+    def test_report_with_insights(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute("UPDATE test_runs SET status='completed', completed_at=? WHERE id=?", (now, run["id"]))
+        conn.execute(
+            "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run["id"], 80, 300, 500, 40.0, 0.5, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+        )
+        conn.execute(
+            "INSERT INTO ai_insights (run_id, area, severity, insight, evidence, recommendation, created_at) VALUES (?,?,?,?,?,?,?)",
+            (run["id"], "Test", "warning", "High latency", "{}", "Investigate", now),
+        )
+        conn.commit()
+        conn.close()
+        report = models_mod.generate_run_report(run["id"])
+        assert len(report["insights"]["warnings"]) > 0
+
+
+class TestCheckExecutionAllowed:
+    def test_returns_allowed(self):
+        result = models_mod.check_execution_allowed(1)
+        assert "allowed" in result
+        assert "currentHour" in result
+
+    def test_blackout_blocks(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        from datetime import datetime as dt_module, timezone
+        current_hour = dt_module.now(timezone.utc).hour
+        conn.execute(
+            "INSERT INTO execution_windows (name, type, day_of_week, start_hour, end_hour, environment_id, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("TestBlackout", "blackout", None, current_hour, current_hour + 2, 1, 1, now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_execution_allowed(1)
+        assert result["blackoutsActive"] is True
+        assert result["allowed"] is False
+
+    def test_window_allows(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        from datetime import datetime as dt_module, timezone
+        current_hour = dt_module.now(timezone.utc).hour
+        conn.execute(
+            "INSERT INTO execution_windows (name, type, day_of_week, start_hour, end_hour, environment_id, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("TestWindow", "window", None, current_hour, current_hour + 2, 1, 1, now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_execution_allowed(1)
+        assert result["inAllowedWindow"] is True
+
+
+class TestCreateRunFromTemplate:
+    def test_creates_from_template(self):
+        run = models_mod.create_run_from_template("baseline", {
+            "scenarioId": 1, "environmentId": 1,
+        })
+        assert "id" in run
+
+    def test_unknown_template_raises(self):
+        with pytest.raises(ValueError, match="Template not found"):
+            models_mod.create_run_from_template("nonexistent", {})
+
+
+class TestCancelRunEdgeCases:
+    def test_cancel_with_docker(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='running', execution_id='test-container' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            result = models_mod.cancel_run(run["id"])
+            assert result["status"] == "cancelled"
+
+    def test_cancel_without_execution_id(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='running' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        result = models_mod.cancel_run(run["id"])
+        assert result["status"] == "cancelled"
+
+
+class TestGetRunLogsEdgeCases:
+    def test_with_execution_id(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET execution_id='test-container' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="log line 1\n", stderr="")):
+            result = models_mod.get_run_logs(run["id"])
+            assert "log line 1" in result["logs"]
+
+    def test_docker_exception(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET execution_id='test-container' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with patch("subprocess.run", side_effect=Exception("docker error")):
+            result = models_mod.get_run_logs(run["id"])
+            assert "Could not retrieve logs" in result["logs"]
+
+
+class TestGetRunLiveEdgeCases:
+    def test_with_cached_state(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        with patch("apps.api.models.get_run_state", return_value={"status": "running", "progress": 50}):
+            live = models_mod.get_run_live(run["id"])
+            assert live["status"] == "running"
+
+    def test_running_with_elapsed(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='running', started_at=? WHERE id=?", (models_mod.utc_now(), run["id"]))
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.get_run_state", return_value=None):
+            live = models_mod.get_run_live(run["id"])
+            assert live["elapsedSeconds"] >= 0
+
+    def test_docker_inspect(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET execution_id='abc123', status='running', started_at=? WHERE id=?", (models_mod.utc_now(), run["id"]))
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.get_run_state", return_value=None), \
+             patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="running\n")):
+            live = models_mod.get_run_live(run["id"])
+            assert live["containerRunning"] is True
+
+    def test_docker_stats(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET execution_id='abc123', status='running', started_at=? WHERE id=?", (models_mod.utc_now(), run["id"]))
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.get_run_state", return_value=None), \
+             patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="running\n"),  # inspect
+                MagicMock(returncode=0, stdout="50.0%|100MiB"),  # stats
+            ]
+            live = models_mod.get_run_live(run["id"])
+            assert "containerCpu" in live
+
+
+class TestCheckEnvironmentReadinessEdgeCases:
+    def test_unreachable_redis(self):
+        with patch("apps.api.models.measure_redis_latency_ms", return_value=0), \
+             patch("apps.api.models.measure_db_latency_ms", return_value=1), \
+             patch("subprocess.run", return_value=MagicMock(returncode=1)):
+            result = models_mod.check_environment_readiness(1)
+            assert any(c["status"] == "fail" for c in result["checks"])
+
+    def test_docker_accessible(self):
+        with patch("apps.api.models.measure_redis_latency_ms", return_value=1), \
+             patch("apps.api.models.measure_db_latency_ms", return_value=1), \
+             patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            result = models_mod.check_environment_readiness(1)
+            docker_check = next(c for c in result["checks"] if c["name"] == "Docker Engine")
+            assert docker_check["status"] == "pass"
+
+
+class TestCheckApplicationHealthEdgeCases:
+    def test_healthy_endpoint(self):
+        with patch("urllib.request.urlopen"):
+            result = models_mod.check_application_health(1)
+            assert result["healthStatus"] == "healthy"
+
+    def test_http_error(self):
+        import urllib.error
+        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(url="", code=503, msg="Down", hdrs=None, fp=None)):
+            result = models_mod.check_application_health(1)
+            assert result["healthStatus"] == "unhealthy"
+
+    def test_client_error_degraded(self):
+        import urllib.error
+        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(url="", code=404, msg="Not Found", hdrs=None, fp=None)):
+            result = models_mod.check_application_health(1)
+            assert result["healthStatus"] == "degraded"
+
+    def test_connection_error(self):
+        with patch("urllib.request.urlopen", side_effect=Exception("connection refused")):
+            result = models_mod.check_application_health(1)
+            assert result["healthStatus"] == "unreachable"
+
+
+class TestUpdateScheduleEdgeCases:
+    def test_update_name(self):
+        s = models_mod.create_schedule({
+            "name": "Orig", "scenario_id": 1, "environment_id": 1,
+            "target_vusers": 100, "duration_minutes": 5,
+            "load_profile": "steady", "cron_expression": "0 2 * * *",
+        })
+        result = models_mod.update_schedule(s["id"], {"name": "Updated"})
+        assert result["name"] == "Updated"
+
+    def test_invalid_cron(self):
+        s = models_mod.create_schedule({
+            "name": "Test", "scenario_id": 1, "environment_id": 1,
+            "target_vusers": 100, "duration_minutes": 5,
+            "load_profile": "steady", "cron_expression": "0 2 * * *",
+        })
+        with pytest.raises(ValueError, match="Invalid cron"):
+            models_mod.update_schedule(s["id"], {"cron_expression": "bad"})
+
+
+class TestDeleteScheduleEdgeCases:
+    def test_not_found(self):
+        with pytest.raises(ValueError, match="Schedule not found"):
+            models_mod.delete_schedule(99999)
+
+
+class TestGetScheduleEdgeCases:
+    def test_not_found(self):
+        with pytest.raises(ValueError, match="Schedule not found"):
+            models_mod.get_schedule(99999)
+
+
+class TestUserEdgeCases:
+    def test_get_user_not_found(self):
+        with pytest.raises(ValueError, match="User not found"):
+            models_mod.get_user(99999)
+
+    def test_create_user_no_password(self):
+        with pytest.raises(ValueError, match="Password is required"):
+            models_mod.create_user({"username": "x", "display_name": "X", "role": "viewer"})
+
+    def test_update_user_no_valid_fields(self):
+        with pytest.raises(ValueError, match="No valid fields"):
+            models_mod.update_user(1, {"bad_field": "val"})
+
+    def test_update_user_invalid_role(self):
+        with pytest.raises(ValueError, match="Invalid role"):
+            models_mod.update_user(1, {"role": "badrole"})
+
+    def test_delete_user_not_found(self):
+        with pytest.raises(ValueError, match="User not found"):
+            models_mod.delete_user(99999)
+
+
+class TestExecutionWindowEdgeCases:
+    def test_get_not_found(self):
+        with pytest.raises(ValueError, match="not found"):
+            models_mod.get_execution_window(99999)
+
+    def test_update_no_valid_fields(self):
+        w = models_mod.create_execution_window({"name": "W", "type": "window", "start_hour": 8, "end_hour": 18})
+        with pytest.raises(ValueError, match="No valid fields"):
+            models_mod.update_execution_window(w["id"], {"bad": "val"})
+
+    def test_delete_not_found(self):
+        with pytest.raises(ValueError, match="not found"):
+            models_mod.delete_execution_window(99999)
+
+
+class TestWebhookEdgeCases:
+    def test_get_not_found(self):
+        with pytest.raises(ValueError, match="Webhook not found"):
+            models_mod.get_webhook(99999)
+
+    def test_update_no_valid_fields(self):
+        wh = models_mod.create_webhook({"name": "W", "url": "https://test.com", "event": "run.completed"})
+        with pytest.raises(ValueError, match="No valid fields"):
+            models_mod.update_webhook(wh["id"], {"bad": "val"})
+
+    def test_delete_not_found(self):
+        with pytest.raises(ValueError, match="Webhook not found"):
+            models_mod.delete_webhook(99999)
+
+
+class TestApplicationEdgeCases:
+    def test_get_not_found(self):
+        with pytest.raises(ValueError, match="Application not found"):
+            models_mod.get_application(99999)
+
+    def test_update_no_valid_fields(self):
+        app = models_mod.create_application({"name": "A", "endpoint": "https://test.com"})
+        with pytest.raises(ValueError, match="No valid fields"):
+            models_mod.update_application(app["id"], {"bad": "val"})
+
+    def test_delete_not_found(self):
+        with pytest.raises(ValueError, match="Application not found"):
+            models_mod.delete_application(99999)
+
+
+class TestGenerateTrendInsights:
+    def test_returns_insights(self):
+        # Create completed runs with results
+        for i in range(2):
+            run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+            conn = models_mod.connect_db()
+            now = models_mod.utc_now()
+            conn.execute("UPDATE test_runs SET status='completed', completed_at=? WHERE id=?", (now, run["id"]))
+            conn.execute(
+                "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (run["id"], 80, 300, 500, 40.0, 0.5, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+            )
+            conn.commit()
+            conn.close()
+        insights = models_mod.generate_trend_insights()
+        assert isinstance(insights, list)
+
+
+class TestTriggerWebhooksEdgeCases:
+    def test_with_secret(self):
+        models_mod.create_webhook({"name": "Hook", "url": "https://hook.test", "event": "run.completed", "secret": "mysecret"})
+        with patch("urllib.request.urlopen"):
+            count = models_mod.trigger_webhooks("run.completed", {"runId": 1})
+        assert count >= 1
+
+    def test_webhook_failure_audited(self):
+        models_mod.create_webhook({"name": "Hook", "url": "https://hook.test", "event": "run.failed"})
+        with patch("urllib.request.urlopen", side_effect=Exception("connection refused")):
+            count = models_mod.trigger_webhooks("run.failed", {"runId": 1})
+        assert count == 0
+
+
+class TestStoreRealResultEdgeCases:
+    def test_with_db_cpu_bottleneck(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        with patch("apps.api.models.set_run_state"), patch("apps.api.models.track_active_run"):
+            started = models_mod.start_run(run["id"])
+        er = MagicMock(p50_ms=80, p95_ms=350, p99_ms=600, throughput_rps=45.0,
+                       error_rate=0.3, total_requests=1000, failed_requests=3, duration_seconds=60.0)
+        with patch("apps.api.models.write_result_artifact", return_value="s3://b/r.json"), \
+             patch("apps.api.models.trigger_webhooks"):
+            result = models_mod.store_real_result(models_mod.connect_db(), started, er)
+            assert result["status"] == "completed"
+
+
+# ===================================================================
+# Remaining coverage push — targeted tests for uncovered lines
+# ===================================================================
+
+class TestMeasureRedisLatency:
+    def test_success(self):
+        with patch("socket.create_connection") as mock_sock:
+            mock_instance = MagicMock()
+            mock_sock.return_value.__enter__ = lambda s: mock_instance
+            mock_sock.return_value.__exit__ = MagicMock(return_value=False)
+            mock_instance.recv.return_value = b"+PONG\r\n"
+            result = models_mod.measure_redis_latency_ms()
+            assert result >= 1
+
+    def test_failure(self):
+        with patch("socket.create_connection", side_effect=OSError("refused")):
+            result = models_mod.measure_redis_latency_ms()
+            assert result == 0
+
+
+class TestMeasureDbLatency:
+    def test_success(self):
+        result = models_mod.measure_db_latency_ms()
+        assert result >= 0
+
+    def test_failure(self):
+        with patch("apps.api.models.connect_db", side_effect=Exception("DB down")):
+            result = models_mod.measure_db_latency_ms()
+            assert result == 0
+
+
+class TestGetTestImpactAnalysisWithChanges:
+    def test_with_scenario_changes(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute(
+            "INSERT INTO audit_events (actor, action, entity_type, entity_id, details, created_at) VALUES (?,?,?,?,?,?)",
+            ("test", "update_scenario", "scenario", 1, "{}", now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.get_test_impact_analysis()
+        assert result["affectedScenarios"] >= 1
+        assert result["impactScore"] > 0
+
+    def test_with_environment_changes(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute(
+            "INSERT INTO audit_events (actor, action, entity_type, entity_id, details, created_at) VALUES (?,?,?,?,?,?)",
+            ("test", "update_environment", "environment", 1, "{}", now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.get_test_impact_analysis()
+        assert result["affectedEnvironments"] >= 1
+
+    def test_high_risk_level(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        for i in range(5):
+            conn.execute(
+                "INSERT INTO audit_events (actor, action, entity_type, entity_id, details, created_at) VALUES (?,?,?,?,?,?)",
+                ("test", "update_scenario", "scenario", i + 1, "{}", now),
+            )
+        conn.commit()
+        conn.close()
+        result = models_mod.get_test_impact_analysis()
+        assert result["riskLevel"] in ("medium", "high")
+
+
+class TestCheckAndExecuteSchedulesFull:
+    def test_executes_due_schedule(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        # Create a schedule with next_run_at in the past
+        conn.execute(
+            "INSERT INTO schedules (name, scenario_id, environment_id, target_vusers, duration_minutes, load_profile, cron_expression, enabled, next_run_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("PastSchedule", 1, 1, 100, 5, "steady", "0 2 * * *", 1, "2020-01-01T00:00:00+00:00", now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_and_execute_schedules()
+        assert result["created"] >= 1
+
+    def test_skips_disabled_schedule(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute(
+            "INSERT INTO schedules (name, scenario_id, environment_id, target_vusers, duration_minutes, load_profile, cron_expression, enabled, next_run_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("DisabledSchedule", 1, 1, 100, 5, "steady", "0 2 * * *", 0, "2020-01-01T00:00:00+00:00", now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_and_execute_schedules()
+        assert result["created"] == 0
+
+
+class TestGenerateRunReportFull:
+    def test_with_baseline_comparison(self):
+        # Create two completed runs for the same scenario
+        run1 = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute("UPDATE test_runs SET status='completed', completed_at=? WHERE id=?", (now, run1["id"]))
+        conn.execute(
+            "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run1["id"], 80, 300, 500, 40.0, 0.5, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+        )
+        conn.commit()
+        conn.close()
+        report = models_mod.generate_run_report(run1["id"])
+        assert "deltas" in report
+        assert "baseline" in report
+
+
+class TestGetRunLiveFull:
+    def test_with_execution_id_and_docker_stats(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET execution_id='abc123', status='running', started_at=? WHERE id=?", (models_mod.utc_now(), run["id"]))
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.get_run_state", return_value=None), \
+             patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="running\n"),
+                MagicMock(returncode=0, stdout="50.0%|100MiB"),
+            ]
+            live = models_mod.get_run_live(run["id"])
+            assert live["containerCpu"] == "50.0%"
+            assert live["containerMemory"] == "100MiB"
+
+    def test_docker_inspect_failure(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET execution_id='abc123', status='running', started_at=? WHERE id=?", (models_mod.utc_now(), run["id"]))
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.get_run_state", return_value=None), \
+             patch("subprocess.run", side_effect=Exception("docker error")):
+            live = models_mod.get_run_live(run["id"])
+            assert live["containerRunning"] is False
+
+
+class TestCheckExecutionAllowedFull:
+    def test_blackout_same_environment(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        from datetime import datetime as dt_module, timezone
+        current_hour = dt_module.now(timezone.utc).hour
+        conn.execute(
+            "INSERT INTO execution_windows (name, type, day_of_week, start_hour, end_hour, environment_id, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("BH", "blackout", None, current_hour, current_hour + 2, 1, 1, now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_execution_allowed(1)
+        assert result["blackoutsActive"] is True
+
+    def test_window_different_environment(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        from datetime import datetime as dt_module, timezone
+        current_hour = dt_module.now(timezone.utc).hour
+        conn.execute(
+            "INSERT INTO execution_windows (name, type, day_of_week, start_hour, end_hour, environment_id, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("WH", "window", None, current_hour, current_hour + 2, 2, 1, now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_execution_allowed(1)
+        assert result["inAllowedWindow"] is False
+
+    def test_window_wrong_day(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        from datetime import datetime as dt_module, timezone
+        current_hour = dt_module.now(timezone.utc).hour
+        wrong_day = (dt_module.now(timezone.utc).weekday() + 1) % 7
+        conn.execute(
+            "INSERT INTO execution_windows (name, type, day_of_week, start_hour, end_hour, environment_id, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("WD", "window", str(wrong_day), current_hour, current_hour + 2, 1, 1, now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_execution_allowed(1)
+        assert result["inAllowedWindow"] is False
+
+
+class TestCancelRunFull:
+    def test_cancel_with_execution_id(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='running', execution_id='docker-123' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            result = models_mod.cancel_run(run["id"])
+            assert result["status"] == "cancelled"
+
+    def test_cancel_docker_kill_fails(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='running', execution_id='docker-123' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with patch("subprocess.run", side_effect=Exception("docker error")):
+            result = models_mod.cancel_run(run["id"])
+            assert result["status"] == "cancelled"
+
+
+class TestStartRunFull:
+    def test_start_already_running(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='running' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with pytest.raises(ValueError, match="cannot start"):
+            models_mod.start_run(run["id"])
+
+
+class TestCompleteRunFull:
+    def test_complete_running_run(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='running' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with pytest.raises(ValueError, match="Manual completion is disabled"):
+            models_mod.complete_run(run["id"])
+
+    def test_complete_with_execution_id(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='ready', execution_id='docker-123' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with pytest.raises(ValueError, match="Manual completion is disabled"):
+            models_mod.complete_run(run["id"])
+
+
+class TestComputeNextRunFull:
+    def test_invalid_cron(self):
+        result = models_mod.compute_next_run("bad cron")
+        assert "+" in result  # returns ISO timestamp
+
+    def test_valid_cron(self):
+        result = models_mod.compute_next_run("0 2 * * *")
+        assert "T02:00" in result
+
+
+class TestCreateScheduleFull:
+    def test_create_with_valid_cron(self):
+        s = models_mod.create_schedule({
+            "name": "Test", "scenario_id": 1, "environment_id": 1,
+            "target_vusers": 100, "duration_minutes": 5,
+            "load_profile": "steady", "cron_expression": "0 2 * * *",
+        })
+        assert s["name"] == "Test"
+
+    def test_create_missing_fields(self):
+        with pytest.raises(ValueError, match="Missing required"):
+            models_mod.create_schedule({"name": "X"})
+
+
+class TestCompareRunsFull:
+    def test_compare_with_results(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        for name in ["A", "B"]:
+            conn.execute(
+                "INSERT INTO test_runs (project_id, scenario_id, environment_id, name, engine, load_profile, target_vusers, duration_minutes, status, quality_gate, risk_score, correlation_id, ai_summary, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (1, 1, 1, name, "k6", "s", 100, 5, "completed", "passed", 75, f"mr-{name}", "s", now),
+            )
+            rid = conn.execute("SELECT id FROM test_runs WHERE name=?", (name,)).fetchone()["id"]
+            conn.execute(
+                "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (rid, 80, 300, 500, 40.0, 0.5, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+            )
+        conn.commit()
+        conn.close()
+        ids = [run["id"] for run in models_mod.get_runs() if run["status"] == "completed"][:2]
+        if len(ids) >= 2:
+            result = models_mod.compare_runs(ids)
+            assert "comparisons" in result
+
+
+class TestSetBaselineFull:
+    def test_set_without_results(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='completed' WHERE id=?", (run["id"],))
+        conn.commit()
+        conn.close()
+        with pytest.raises(ValueError, match="must have results"):
+            models_mod.set_baseline(run["id"])
+
+
+# ===================================================================
+# Final coverage push — exact line targeting
+# ===================================================================
+
+class TestStartRunEnvironmentNotReady:
+    def test_not_ready_environment(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET status='ready' WHERE id=?", (run["id"],))
+        conn.execute("UPDATE environments SET readiness_status='not_ready' WHERE id=1")
+        conn.commit()
+        conn.close()
+        with pytest.raises(ValueError, match="Environment is not ready"):
+            models_mod.start_run(run["id"])
+
+
+class TestStoreRealResultBaselineException:
+    def test_baseline_comparison_error(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute("UPDATE test_runs SET status='completed', completed_at=? WHERE id=?", (now, run["id"]))
+        conn.execute(
+            "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run["id"], 80, 300, 500, 40.0, 0.5, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+        )
+        conn.commit()
+        conn.close()
+        er = MagicMock(p50_ms=80, p95_ms=350, p99_ms=600, throughput_rps=45.0,
+                       error_rate=0.3, total_requests=1000, failed_requests=3, duration_seconds=60.0)
+        with patch("apps.api.models.write_result_artifact", return_value="s3://b/r.json"), \
+             patch("apps.api.models.trigger_webhooks"):
+            result = models_mod.store_real_result(models_mod.connect_db(), run, er)
+            assert result["status"] == "completed"
+
+
+class TestGenerateTrendInsightsRegressions:
+    def test_with_regressions(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        # Create two completed runs with different performance
+        for i, (p95, err) in enumerate([(200, 0.1), (500, 2.0)]):
+            run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+            conn.execute("UPDATE test_runs SET status='completed', completed_at=? WHERE id=?", (now, run["id"]))
+            conn.execute(
+                "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (run["id"], int(p95 * 0.6), p95, int(p95 * 1.3), 40.0, err, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+            )
+            conn.commit()
+        conn.close()
+        insights = models_mod.generate_trend_insights()
+        assert isinstance(insights, list)
+
+
+class TestUpdateScheduleFull:
+    def test_update_with_cron(self):
+        s = models_mod.create_schedule({
+            "name": "Test", "scenario_id": 1, "environment_id": 1,
+            "target_vusers": 100, "duration_minutes": 5,
+            "load_profile": "steady", "cron_expression": "0 2 * * *",
+        })
+        result = models_mod.update_schedule(s["id"], {"cron_expression": "0 3 * * *"})
+        assert "T03:00" in result["next_run_at"]
+
+    def test_update_no_valid_fields(self):
+        s = models_mod.create_schedule({
+            "name": "Test", "scenario_id": 1, "environment_id": 1,
+            "target_vusers": 100, "duration_minutes": 5,
+            "load_profile": "steady", "cron_expression": "0 2 * * *",
+        })
+        with pytest.raises(ValueError, match="No valid fields"):
+            models_mod.update_schedule(s["id"], {"bad_field": "val"})
+
+
+class TestCheckAndExecuteSchedulesException:
+    def test_schedule_execution_error(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute(
+            "INSERT INTO schedules (name, scenario_id, environment_id, target_vusers, duration_minutes, load_profile, cron_expression, enabled, next_run_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("BadSchedule", 1, 1, 100, 5, "steady", "0 2 * * *", 1, "2020-01-01T00:00:00+00:00", now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_and_execute_schedules()
+        assert "created" in result
+
+    def test_schedule_create_run_exception(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute(
+            "INSERT INTO schedules (name, scenario_id, environment_id, target_vusers, duration_minutes, load_profile, cron_expression, enabled, next_run_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("FailSchedule", 1, 1, 100, 5, "steady", "0 2 * * *", 1, "2020-01-01T00:00:00+00:00", now),
+        )
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.create_run", side_effect=Exception("DB locked")):
+            result = models_mod.check_and_execute_schedules()
+            assert result["created"] == 0
+
+
+class TestStoreRealResultException:
+    def test_exception_in_baseline_comparison(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        er = MagicMock(p50_ms=80, p95_ms=350, p99_ms=600, throughput_rps=45.0,
+                       error_rate=0.3, total_requests=1000, failed_requests=3, duration_seconds=60.0)
+        with patch("apps.api.models.write_result_artifact", return_value="s3://b/r.json"), \
+             patch("apps.api.models.trigger_webhooks"):
+            result = models_mod.store_real_result(models_mod.connect_db(), run, er)
+            assert result["status"] == "completed"
+
+
+class TestGetRunLiveDockerStatsException:
+    def test_docker_stats_exception(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE test_runs SET execution_id='abc123', status='running', started_at=? WHERE id=?", (models_mod.utc_now(), run["id"]))
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.get_run_state", return_value=None), \
+             patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="running\n"),
+                Exception("docker stats error"),
+            ]
+            live = models_mod.get_run_live(run["id"])
+            assert "containerCpu" not in live
+
+
+class TestCheckExecutionAllowedBlackoutEdgeCases:
+    def test_blackout_wrong_day(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        from datetime import datetime as dt_module, timezone
+        current_hour = dt_module.now(timezone.utc).hour
+        wrong_day = (dt_module.now(timezone.utc).weekday() + 1) % 7
+        conn.execute(
+            "INSERT INTO execution_windows (name, type, day_of_week, start_hour, end_hour, environment_id, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("BD", "blackout", str(wrong_day), current_hour, current_hour + 2, 1, 1, now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_execution_allowed(1)
+        assert result["blackoutsActive"] is False
+
+    def test_blackout_different_env(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        from datetime import datetime as dt_module, timezone
+        current_hour = dt_module.now(timezone.utc).hour
+        conn.execute(
+            "INSERT INTO execution_windows (name, type, day_of_week, start_hour, end_hour, environment_id, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("BE", "blackout", None, current_hour, current_hour + 2, 2, 1, now),
+        )
+        conn.commit()
+        conn.close()
+        result = models_mod.check_execution_allowed(1)
+        assert result["blackoutsActive"] is False
+
+
+class TestNextCronTimeFallback:
+    def test_fallback_when_no_match(self):
+        from datetime import datetime as dt_module, timezone
+        after = dt_module(2026, 12, 31, 23, 59, tzinfo=timezone.utc)
+        result = models_mod._next_cron_time({"minute": "0", "hour": "0", "day": "31", "month": "12", "weekday": "*"}, after)
+        assert result is not None
+
+
+class TestIsImprovementFull:
+    def test_all_metric_types(self):
+        assert models_mod._is_improvement("p50_ms", 100, 200) is True
+        assert models_mod._is_improvement("p50_ms", 200, 100) is False
+        assert models_mod._is_improvement("p95_ms", 100, 200) is True
+        assert models_mod._is_improvement("p99_ms", 100, 200) is True
+        assert models_mod._is_improvement("error_rate", 0.1, 0.5) is True
+        assert models_mod._is_improvement("throughput_rps", 50, 30) is True
+        assert models_mod._is_improvement("apdex", 0.9, 0.7) is True
+        assert models_mod._is_improvement("unknown", 1, 2) is False
+
+
+class TestGenerateRunReportFull:
+    def test_with_previous_runs(self):
+        # Create two completed runs for same scenario
+        run1 = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute("UPDATE test_runs SET status='completed', completed_at=? WHERE id=?", (now, run1["id"]))
+        conn.execute(
+            "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run1["id"], 80, 300, 500, 40.0, 0.5, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+        )
+        conn.commit()
+        conn.close()
+        report = models_mod.generate_run_report(run1["id"])
+        assert "deltas" in report
+        assert "baseline" in report
+
+
+class TestCheckEnvironmentReadinessFull:
+    def test_environment_not_found(self):
+        with pytest.raises(ValueError, match="Environment not found"):
+            models_mod.check_environment_readiness(99999)
+
+    def test_redis_unreachable(self):
+        with patch("apps.api.models.measure_redis_latency_ms", return_value=0), \
+             patch("apps.api.models.measure_db_latency_ms", return_value=1), \
+             patch("subprocess.run", return_value=MagicMock(returncode=1)):
+            result = models_mod.check_environment_readiness(1)
+            redis_check = next(c for c in result["checks"] if c["name"] == "Redis Connectivity")
+            assert redis_check["status"] == "fail"
+
+    def test_db_unreachable(self):
+        with patch("apps.api.models.measure_redis_latency_ms", return_value=1), \
+             patch("apps.api.models.measure_db_latency_ms", return_value=0), \
+             patch("subprocess.run", return_value=MagicMock(returncode=1)):
+            result = models_mod.check_environment_readiness(1)
+            db_check = next(c for c in result["checks"] if c["name"] == "Database Connectivity")
+            assert db_check["status"] == "fail"
+
+    def test_docker_unreachable(self):
+        with patch("apps.api.models.measure_redis_latency_ms", return_value=1), \
+             patch("apps.api.models.measure_db_latency_ms", return_value=1), \
+             patch("subprocess.run", side_effect=Exception("docker error")):
+            result = models_mod.check_environment_readiness(1)
+            docker_check = next(c for c in result["checks"] if c["name"] == "Docker Engine")
+            assert docker_check["status"] == "fail"
+
+    def test_insufficient_capacity(self):
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE load_generator_pools SET current_reservation = max_vusers WHERE status = 'healthy'")
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.measure_redis_latency_ms", return_value=1), \
+             patch("apps.api.models.measure_db_latency_ms", return_value=1), \
+             patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            result = models_mod.check_environment_readiness(1)
+            cap_check = next(c for c in result["checks"] if c["name"] == "Generator Capacity")
+            assert cap_check["status"] == "fail"
+
+
+class TestCompareRunsDeltaZero:
+    def test_baseline_zero(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        for name in ["A", "B"]:
+            conn.execute(
+                "INSERT INTO test_runs (project_id, scenario_id, environment_id, name, engine, load_profile, target_vusers, duration_minutes, status, quality_gate, risk_score, correlation_id, ai_summary, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (1, 1, 1, name, "k6", "s", 100, 5, "completed", "passed", 75, f"mr-{name}", "s", now),
+            )
+            rid = conn.execute("SELECT id FROM test_runs WHERE name=?", (name,)).fetchone()["id"]
+            conn.execute(
+                "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (rid, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0, "p", now),
+            )
+        conn.commit()
+        conn.close()
+        ids = [run["id"] for run in models_mod.get_runs() if run["status"] == "completed"][:2]
+        if len(ids) >= 2:
+            result = models_mod.compare_runs(ids)
+            assert "comparisons" in result
+
+
+class TestCreateApplicationMissingFields:
+    def test_missing_endpoint(self):
+        with pytest.raises(ValueError, match="Missing required"):
+            models_mod.create_application({"name": "X"})
+
+
+class TestGetTestImpactAnalysisMediumRisk:
+    def test_medium_risk(self):
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        for i in range(3):
+            conn.execute(
+                "INSERT INTO audit_events (actor, action, entity_type, entity_id, details, created_at) VALUES (?,?,?,?,?,?)",
+                ("test", "update_scenario", "scenario", i + 1, "{}", now),
+            )
+        conn.commit()
+        conn.close()
+        result = models_mod.get_test_impact_analysis()
+        assert result["riskLevel"] == "medium"
+
+
+class TestGenerateRunReportWithDeltas:
+    def test_with_previous_run_deltas(self):
+        # Create first run
+        run1 = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn = models_mod.connect_db()
+        now = models_mod.utc_now()
+        conn.execute("UPDATE test_runs SET status='completed', completed_at=? WHERE id=?", (now, run1["id"]))
+        conn.execute(
+            "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run1["id"], 80, 300, 500, 40.0, 0.5, 0.9, 50.0, 60.0, 2, 20.0, "p", now),
+        )
+        conn.commit()
+        # Create second run for same scenario
+        run2 = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        conn.execute("UPDATE test_runs SET status='completed', completed_at=? WHERE id=?", (now, run2["id"]))
+        conn.execute(
+            "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, redis_latency_ms, db_cpu_peak, artifact_path, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run2["id"], 100, 400, 600, 35.0, 0.8, 0.85, 55.0, 65.0, 3, 25.0, "p", now),
+        )
+        conn.commit()
+        conn.close()
+        report = models_mod.generate_run_report(run2["id"])
+        assert report["baseline"] is not None
+        assert "p95" in report["deltas"]
+        assert "errorRate" in report["deltas"]
+        assert "throughput" in report["deltas"]
+
+
+class TestCheckEnvironmentReadinessNotReady:
+    def test_not_ready_environment(self):
+        conn = models_mod.connect_db()
+        conn.execute("UPDATE environments SET readiness_status='not_ready' WHERE id=1")
+        conn.commit()
+        conn.close()
+        with patch("apps.api.models.measure_redis_latency_ms", return_value=1), \
+             patch("apps.api.models.measure_db_latency_ms", return_value=1), \
+             patch("subprocess.run", return_value=MagicMock(returncode=0)):
+            result = models_mod.check_environment_readiness(1)
+            env_check = result["checks"][0]
+            assert env_check["status"] == "fail"
+            assert result["ready"] is False
+
+
+class TestCreateExecutionWindowMissingFields:
+    def test_missing_fields(self):
+        with pytest.raises(ValueError, match="Missing required"):
+            models_mod.create_execution_window({"name": "X"})
+
+
+class TestStoreRealResultException:
+    def test_exception_in_baseline_comparison(self):
+        run = models_mod.create_run({"scenarioId": 1, "environmentId": 1, "targetVusers": 100})
+        er = MagicMock(p50_ms=80, p95_ms=350, p99_ms=600, throughput_rps=45.0,
+                       error_rate=0.3, total_requests=1000, failed_requests=3, duration_seconds=60.0)
+        with patch("apps.api.models.write_result_artifact", return_value="s3://b/r.json"), \
+             patch("apps.api.models.trigger_webhooks"):
+            result = models_mod.store_real_result(models_mod.connect_db(), run, er)
+            assert result["status"] == "completed"

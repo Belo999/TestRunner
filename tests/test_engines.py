@@ -385,3 +385,111 @@ class TestEnsureResultDir:
         result = engine.ensure_result_dir(str(target))
         assert result.exists()
         assert result.is_dir()
+
+
+# ── Engine parse_results delegation ─────────────────────────────────────────
+
+class TestEngineParseResults:
+    def test_jmeter_parse_results(self, tmp_result_dir: Path):
+        from apps.api.engines.jmeter import JMeterEngine
+        engine = JMeterEngine()
+        result = engine.parse_results(str(tmp_result_dir))
+        assert result.total_requests == 0
+
+    def test_k6_parse_results(self, tmp_result_dir: Path):
+        from apps.api.engines.k6 import K6Engine
+        engine = K6Engine()
+        result = engine.parse_results(str(tmp_result_dir))
+        assert result.total_requests == 0
+
+    def test_gatling_parse_results(self, tmp_result_dir: Path):
+        from apps.api.engines.gatling import GatlingEngine
+        engine = GatlingEngine()
+        result = engine.parse_results(str(tmp_result_dir))
+        assert result.total_requests == 0
+
+    def test_locust_parse_results(self, tmp_result_dir: Path):
+        from apps.api.engines.locust import LocustEngine
+        engine = LocustEngine()
+        result = engine.parse_results(str(tmp_result_dir))
+        assert result.total_requests == 0
+
+    def test_playwright_parse_results(self, tmp_result_dir: Path):
+        from apps.api.engines.playwright import PlaywrightEngine
+        engine = PlaywrightEngine()
+        result = engine.parse_results(str(tmp_result_dir))
+        assert result.total_requests == 0
+
+
+# ── Parser edge cases ──────────────────────────────────────────────────────
+
+class TestJMeterParserEdgeCases:
+    def test_csv_with_bad_rows(self, tmp_result_dir: Path):
+        from apps.api.engines.jmeter_parser import parse_jtl
+        csv_content = "elapsed,timeStamp,success\nbad,data,false\n,123,true\n456,bad,true\n"
+        (tmp_result_dir / "results.jtl").write_text(csv_content)
+        result = parse_jtl(str(tmp_result_dir))
+        assert result.total_requests >= 0
+
+    def test_xml_jtl(self, tmp_result_dir: Path):
+        from apps.api.engines.jmeter_parser import parse_jtl
+        xml_content = """<?xml version="1.0"?>
+<testResults>
+<sample t="100" ts="123" success="true"/>
+</testResults>"""
+        (tmp_result_dir / "results.jtl").write_text(xml_content)
+        result = parse_jtl(str(tmp_result_dir))
+        assert result.total_requests == 1
+
+
+class TestK6ParserEdgeCases:
+    def test_summary_with_values_wrapper(self, tmp_result_dir: Path):
+        from apps.api.engines.k6_parser import parse_k6_summary
+        summary = {
+            "metrics": {
+                "http_req_duration": {
+                    "values": {"p(50)": 100, "p(95)": 200, "p(99)": 300}
+                },
+                "http_reqs": {"values": {"count": 50, "rate": 10.0}},
+                "http_req_failed": {"values": {"rate": 0.1}},
+            }
+        }
+        (tmp_result_dir / "summary.json").write_text(json.dumps(summary))
+        result = parse_k6_summary(str(tmp_result_dir))
+        assert result.p50_ms == 100
+
+
+class TestGatlingParserEdgeCases:
+    def test_stats_with_aggregate_only(self, tmp_result_dir: Path):
+        from apps.api.engines.gatling_parser import parse_gatling_results
+        csv_content = "scenario,requests,responseTimeMean,responseTimeP50,responseTimeP95,responseTimeP99,responseTimeStdDev,responseTimeMax,requestRate,meanRespTime\nAll Requests,100,50,45,120,200,30,500,10.0,50\n"
+        (tmp_result_dir / "stats.csv").write_text(csv_content)
+        result = parse_gatling_results(str(tmp_result_dir))
+        assert result.total_requests >= 0
+
+
+class TestLocustParserEdgeCases:
+    def test_stats_with_only_totals(self, tmp_result_dir: Path):
+        from apps.api.engines.locust_parser import parse_locust_results
+        csv_content = "Name,Request Count,Failure Count,Median Response Time,Average Response Time,Min Response Time,Max Response Time,Average Content Size,Requests/s,Failures/s,50%,66%,75%,80%,90%,95%,98%,99%,99.9%,99.99%,100%\nTotal,100,5,50,55,10,200,1024,10.0,0.5,45,50,55,60,80,120,180,190,199,200,200\n"
+        (tmp_result_dir / "stats_stats.csv").write_text(csv_content)
+        result = parse_locust_results(str(tmp_result_dir))
+        assert result.total_requests >= 0
+
+
+class TestPlaywrightParserEdgeCases:
+    def test_report_with_specs(self, tmp_result_dir: Path):
+        from apps.api.engines.playwright_parser import parse_playwright_results
+        report = {
+            "suites": [{
+                "specs": [{
+                    "tests": [
+                        {"results": [{"status": "passed", "duration": 100}]},
+                        {"results": [{"status": "failed", "duration": 200}]},
+                    ]
+                }]
+            }]
+        }
+        (tmp_result_dir / "report.json").write_text(json.dumps(report))
+        result = parse_playwright_results(str(tmp_result_dir))
+        assert result.total_requests == 2

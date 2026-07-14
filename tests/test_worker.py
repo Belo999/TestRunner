@@ -444,3 +444,57 @@ class TestRunWorker:
         # Should not hang — SIGTERM sets stopping=True
         from apps.api.worker import run_worker
         run_worker()
+
+
+class TestProcessWorkerTickEdgeCases:
+    def test_db_connection_failure(self, monkeypatch):
+        monkeypatch.setattr("apps.api.worker.connect_db", MagicMock(side_effect=Exception("DB down")))
+        summary = process_worker_tick()
+        assert summary["queued"] == 0
+        assert summary["started"] == 0
+
+    def test_exception_rollback(self, tmp_db, monkeypatch):
+        self._setup_db(tmp_db)
+        from apps.api.database import utc_now
+        now = utc_now()
+        tmp_db.execute(
+            "INSERT INTO test_runs (project_id, scenario_id, environment_id, name, engine, load_profile, target_vusers, duration_minutes, status, quality_gate, risk_score, correlation_id, ai_summary, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (1, 1, 1, "Run", "k6", "constant", 100, 5, "queued", "pass", 85, "corr-1", "summary", now),
+        )
+        tmp_db.commit()
+        monkeypatch.setattr("apps.api.worker.connect_db", lambda: tmp_db)
+        # Make start_run raise to trigger the exception path
+        with patch("apps.api.worker.get_run", side_effect=Exception("DB locked")), \
+             patch("apps.api.worker.clear_run_state"), \
+             patch("apps.api.worker.untrack_active_run"):
+            summary = process_worker_tick()
+        # Should handle exception gracefully
+        assert "failed" in summary
+
+    def test_running_run_exception_path(self, tmp_db, monkeypatch):
+        self._setup_db(tmp_db)
+        from apps.api.database import utc_now
+        now = utc_now()
+        tmp_db.execute(
+            "INSERT INTO test_runs (project_id, scenario_id, environment_id, name, engine, load_profile, target_vusers, duration_minutes, status, quality_gate, risk_score, correlation_id, ai_summary, started_at, execution_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (1, 1, 1, "Run", "k6", "constant", 100, 5, "running", "pass", 85, "corr-1", "summary", now, "container1", now),
+        )
+        tmp_db.commit()
+        monkeypatch.setattr("apps.api.worker.connect_db", lambda: tmp_db)
+        with patch("apps.api.worker.check_container_running", return_value=False), \
+             patch("apps.api.worker.get_engine", side_effect=Exception("engine error")), \
+             patch("apps.api.worker.clear_run_state"), \
+             patch("apps.api.worker.untrack_active_run"):
+            summary = process_worker_tick()
+        assert "failed" in summary
+
+    def _setup_db(self, tmp_db):
+        from apps.api.database import utc_now
+        now = utc_now()
+        tmp_db.execute("INSERT INTO projects (name, owner, business_unit, risk_tier, created_at) VALUES (?,?,?,?,?)",
+                        ("P1", "admin", "BU", "low", now))
+        tmp_db.execute("INSERT INTO environments (name, region, classification, readiness_status, service_virtualization_enabled, data_residency, updated_at) VALUES (?,?,?,?,?,?,?)",
+                        ("dev", "us-east-1", "internal", "ready", 0, "US", now))
+        tmp_db.execute("INSERT INTO scenarios (project_id, name, engine, test_type, workload_mix, script_repository, target_endpoint, sla_p95_ms, max_error_rate, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (1, "S1", "k6", "load", "mixed", "repo", "http://localhost", 500, 1.0, now))
+        tmp_db.commit()

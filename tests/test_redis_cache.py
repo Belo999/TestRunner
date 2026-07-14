@@ -90,3 +90,23 @@ class TestRedisCache:
     def test_ping_failure(self, mock_cmd):
         mock_cmd.return_value = None
         assert ping_redis() is False
+
+    def test_send_command_real_socket(self):
+        from apps.api.redis_cache import _send_command
+        with patch("socket.create_connection", side_effect=OSError("refused")):
+            result = _send_command("PING")
+            assert result is None
+
+    def test_send_command_error_response(self):
+        from apps.api.redis_cache import _send_command
+        mock_sock = MagicMock()
+        mock_sock.recv.return_value = b"-ERR unknown command\r\n"
+        with patch("socket.create_connection", return_value=mock_sock):
+            result = _send_command("PING")
+            assert result is None
+
+    def test_get_run_state_json_error(self):
+        from apps.api.redis_cache import get_run_state
+        with patch("apps.api.redis_cache._send_command", return_value="$5\r\n{bad\r\n"):
+            result = get_run_state(1)
+            assert result is None

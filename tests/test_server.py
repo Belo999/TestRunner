@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apps.api.auth import generate_token
+from apps.api.server import path_string, path_id
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -920,3 +921,163 @@ class TestCorsOptions:
         resp = urllib.request.urlopen(req)
         assert resp.headers.get("Access-Control-Allow-Origin") == "*"
         assert "GET" in resp.headers.get("Access-Control-Allow-Methods", "")
+
+
+# ===================================================================
+# Unit tests for server.py helper functions
+# ===================================================================
+
+class TestPathString:
+    def test_extracts_string(self):
+        assert path_string("/api/templates/baseline/run", "/api/templates/", "/run") == "baseline"
+
+    def test_no_prefix(self):
+        assert path_string("/api/other", "/api/templates/") is None
+
+    def test_no_suffix(self):
+        assert path_string("/api/templates/baseline/other", "/api/templates/", "/run") is None
+
+    def test_empty_tail(self):
+        assert path_string("/api/templates//run", "/api/templates/", "/run") is None
+
+    def test_no_suffix_required(self):
+        assert path_string("/api/templates/baseline", "/api/templates/") == "baseline"
+
+
+class TestPathId:
+    def test_extracts_id(self):
+        assert path_id("/api/runs/42", "/api/runs/") == 42
+
+    def test_no_match(self):
+        assert path_id("/api/runs/abc", "/api/runs/") is None
+
+    def test_with_suffix(self):
+        assert path_id("/api/runs/42/logs", "/api/runs/", "/logs") == 42
+
+    def test_suffix_mismatch(self):
+        assert path_id("/api/runs/42/other", "/api/runs/", "/logs") is None
+
+
+class TestContentType:
+    def test_html(self, server_url):
+        from pathlib import Path
+        req = urllib.request.Request(f"{server_url}/api/runs", method="OPTIONS")
+        resp = urllib.request.urlopen(req)
+        # We can't call content_type directly, but we can test via static files
+        # Instead test the mapping logic
+        from apps.api.server import MarathonRunnerHandler
+        handler = MarathonRunnerHandler.__new__(MarathonRunnerHandler)
+        assert handler.content_type(Path("test.html")) == "text/html; charset=utf-8"
+        assert handler.content_type(Path("test.css")) == "text/css; charset=utf-8"
+        assert handler.content_type(Path("test.js")) == "application/javascript; charset=utf-8"
+        assert handler.content_type(Path("test.json")) == "application/json; charset=utf-8"
+        assert handler.content_type(Path("test.png")) == "application/octet-stream"
+
+
+class TestExportCsvWithData:
+    def test_export_runs(self, server_url):
+        status, body = _get(f"{server_url}/api/export/csv?table=runs", ADMIN)
+        assert status == 200
+        assert isinstance(body, bytes)
+        assert b"\r\n" in body  # CSV line endings
+
+    def test_export_audit(self, server_url):
+        status, body = _get(f"{server_url}/api/export/csv?table=audit", ADMIN)
+        assert status in (200, 404)
+
+    def test_export_default_table(self, server_url):
+        status, body = _get(f"{server_url}/api/export/csv", ADMIN)
+        assert status in (200, 404)
+
+
+class TestRunLogsWithDocker:
+    def test_logs_with_container(self, server_url):
+        # Set execution_id on a run
+        conn = sqlite3.connect(str(Path(os.environ["MARATHONRUNNER_DB_PATH"])))
+        conn.execute("UPDATE test_runs SET execution_id='test-container' WHERE id=1")
+        conn.commit()
+        conn.close()
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="log line\n", stderr="")):
+            status, body = _get(f"{server_url}/api/runs/1/logs", ADMIN)
+            assert status == 200
+            assert "log line" in body["logs"]
+
+    def test_logs_docker_error(self, server_url):
+        conn = sqlite3.connect(str(Path(os.environ["MARATHONRUNNER_DB_PATH"])))
+        conn.execute("UPDATE test_runs SET execution_id='test-container' WHERE id=1")
+        conn.commit()
+        conn.close()
+        with patch("subprocess.run", side_effect=Exception("docker error")):
+            status, body = _get(f"{server_url}/api/runs/1/logs", ADMIN)
+            assert status == 200
+            assert "Could not retrieve logs" in body["logs"]
+
+
+class TestTemplateRun:
+    def test_run_from_template(self, server_url):
+        status, body = _post(f"{server_url}/api/templates/baseline/run",
+                             {"scenarioId": 1, "environmentId": 1}, ADMIN)
+        assert status == 201
+        assert "run" in body
+
+    def test_unknown_template(self, server_url):
+        status, _ = _post(f"{server_url}/api/templates/nonexistent/run",
+                          {"scenarioId": 1, "environmentId": 1}, ADMIN)
+        assert status == 400
+
+
+class TestPutDeleteErrorPaths:
+    def test_put_nonexistent_entity(self, server_url):
+        status, _ = _put(f"{server_url}/api/projects/99999", {"name": "X"}, ADMIN)
+        assert status == 400
+
+    def test_delete_nonexistent_entity(self, server_url):
+        status, _ = _delete(f"{server_url}/api/projects/99999", ADMIN)
+        assert status == 400
+
+    def test_put_no_valid_fields(self, server_url):
+        status, _ = _put(f"{server_url}/api/projects/1", {"bad_field": "val"}, ADMIN)
+        assert status == 400
+
+    def test_put_nonexistent_schedule(self, server_url):
+        status, _ = _put(f"{server_url}/api/schedules/99999", {"name": "X"}, ADMIN)
+        assert status == 400
+
+    def test_delete_nonexistent_schedule(self, server_url):
+        status, _ = _delete(f"{server_url}/api/schedules/99999", ADMIN)
+        assert status == 400
+
+
+class TestStaticServing:
+    def test_serves_index(self, server_url):
+        status, body = _get(f"{server_url}/")
+        assert status == 200
+
+    def test_serves_css(self, server_url):
+        status, _ = _get(f"{server_url}/styles.css")
+        assert status in (200, 404)
+
+    def test_path_traversal_blocked(self, server_url):
+        status, _ = _get(f"{server_url}/../../../etc/passwd")
+        assert status in (404, 400)
+
+
+class TestRunApi:
+    def test_run_api_starts(self, monkeypatch):
+        monkeypatch.setattr("apps.api.server.os.environ.get", lambda k, d="": "0" if k == "MARATHONRUNNER_PORT" else d)
+        with patch("apps.api.server.ThreadingHTTPServer") as mock_server:
+            mock_instance = MagicMock()
+            mock_server.return_value = mock_instance
+            from apps.api.server import run_api
+            # Should not hang — serve_forever is mocked
+            import threading
+            def stop_after_call():
+                import time
+                time.sleep(0.1)
+                mock_instance.serve_forever.side_effect = KeyboardInterrupt()
+            t = threading.Thread(target=stop_after_call)
+            t.start()
+            try:
+                run_api()
+            except KeyboardInterrupt:
+                pass

@@ -932,7 +932,7 @@ def _next_cron_time(cron: dict[str, Any], after: Any) -> Any:
 
 
 def compute_next_run(cron_expression: str, after: Any | None = None) -> str:
-    from datetime import datetime as dt_module, timezone
+    from datetime import datetime as dt_module, timedelta, timezone
     if after is None:
         after = dt_module.now(timezone.utc)
     cron = _parse_cron(cron_expression)
