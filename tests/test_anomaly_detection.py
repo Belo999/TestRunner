@@ -87,9 +87,12 @@ def anomaly_db(tmp_path):
             p99_ms INTEGER NOT NULL,
             throughput_rps REAL NOT NULL,
             error_rate REAL NOT NULL,
-            total_requests INTEGER NOT NULL,
-            failed_requests INTEGER NOT NULL,
-            duration_seconds REAL NOT NULL,
+            apdex REAL NOT NULL DEFAULT 1.0,
+            cpu_peak REAL NOT NULL DEFAULT 0.0,
+            memory_peak REAL NOT NULL DEFAULT 0.0,
+            redis_latency_ms INTEGER NOT NULL DEFAULT 0,
+            db_cpu_peak REAL NOT NULL DEFAULT 0.0,
+            artifact_path TEXT,
             created_at TEXT NOT NULL
         );
     """)
@@ -119,14 +122,14 @@ def anomaly_db(tmp_path):
         # Normal results for first 3 runs
         if i < 3:
             conn.execute(
-                "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, total_requests, failed_requests, duration_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (i + 1, 100, 200, 300, 1000.0, 0.01, 300000, 3000, 300.0, f"2025-01-0{i+1}T00:00:00Z"),
+                "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (i + 1, 100, 200, 300, 1000.0, 0.01, 0.95, 45.0, 60.0, f"2025-01-0{i+1}T00:00:00Z"),
             )
         # Anomalous results for last 2 runs
         else:
             conn.execute(
-                "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, total_requests, failed_requests, duration_seconds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (i + 1, 500, 2000, 5000, 200.0, 0.15, 60000, 9000, 300.0, f"2025-01-0{i+1}T00:00:00Z"),
+                "INSERT INTO run_results (run_id, p50_ms, p95_ms, p99_ms, throughput_rps, error_rate, apdex, cpu_peak, memory_peak, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (i + 1, 500, 2000, 5000, 200.0, 0.15, 0.6, 85.0, 90.0, f"2025-01-0{i+1}T00:00:00Z"),
             )
 
     conn.commit()

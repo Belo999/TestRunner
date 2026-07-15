@@ -2327,18 +2327,16 @@ def detect_anomalies(run_id: int) -> dict[str, Any]:
 
         # Analyze throughput
         throughput = result["throughput_rps"]
-        if throughput > 0 and result["total_requests"] > 0:
-            expected_throughput = result["total_requests"] / max(result["duration_seconds"], 1)
-            if throughput < expected_throughput * 0.7:
-                anomalies.append({
-                    "type": "low_throughput",
-                    "severity": "warning",
-                    "metric": "throughput_rps",
-                    "value": throughput,
-                    "expected": round(expected_throughput, 2),
-                    "message": "Throughput lower than expected based on request count",
-                })
-                recommendations.append("Check for bottleneck in request processing pipeline")
+        # Throughput analysis - just check if it's very low
+        if throughput > 0 and throughput < 1.0:
+            anomalies.append({
+                "type": "low_throughput",
+                "severity": "warning",
+                "metric": "throughput_rps",
+                "value": throughput,
+                "message": "Very low throughput detected",
+            })
+            recommendations.append("Check for bottleneck in request processing pipeline")
 
         # Check SLA compliance
         sla_p95 = run.get("sla_p95_ms", 0)
@@ -2389,9 +2387,9 @@ def detect_anomalies(run_id: int) -> dict[str, Any]:
                 "p99_ms": p99,
                 "throughput_rps": throughput,
                 "error_rate": error_rate,
-                "total_requests": result["total_requests"],
-                "failed_requests": result["failed_requests"],
-                "duration_seconds": result["duration_seconds"],
+                "apdex": result["apdex"],
+                "cpu_peak": result["cpu_peak"],
+                "memory_peak": result["memory_peak"],
             },
         }
     finally:
@@ -2412,7 +2410,7 @@ def detect_trend_anomalies(project_id: int | None = None) -> dict[str, Any]:
     try:
         query = """
             SELECT r.*, rr.p50_ms, rr.p95_ms, rr.p99_ms, rr.throughput_rps,
-                   rr.error_rate, rr.total_requests, rr.failed_requests, rr.duration_seconds
+                   rr.error_rate, rr.apdex, rr.cpu_peak, rr.memory_peak
             FROM test_runs r
             JOIN run_results rr ON r.id = rr.run_id
             WHERE r.status = 'completed'
