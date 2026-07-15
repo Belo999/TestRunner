@@ -2234,3 +2234,581 @@ def get_k8s_cluster_nodes() -> list[dict[str, Any]]:
     # nodes = api.list_node()
     # return [{"name": n.metadata.name, "status": ...} for n in nodes.items]
     return []
+
+
+# AI-Assisted Anomaly Detection
+
+import statistics
+import math
+
+
+def detect_anomalies(run_id: int) -> dict[str, Any]:
+    """Detect anomalies in a test run's metrics.
+
+    Analyzes response times, throughput, and error rates to identify:
+    - Response time spikes
+    - Throughput drops
+    - Error rate anomalies
+    - Performance regressions
+
+    Returns anomaly report with detected issues and recommendations.
+    """
+    connection = connect_db()
+    try:
+        run = get_run(run_id, connection)
+        if run is None:
+            return {"error": "Run not found", "anomalies": []}
+
+        result = connection.execute(
+            "SELECT * FROM run_results WHERE run_id = ?", (run_id,)
+        ).fetchone()
+
+        if result is None:
+            return {"error": "No results found", "anomalies": []}
+
+        anomalies = []
+        recommendations = []
+
+        # Analyze response time percentiles
+        p50 = result["p50_ms"]
+        p95 = result["p95_ms"]
+        p99 = result["p99_ms"]
+
+        # Check for high percentile spread (indicates inconsistent performance)
+        if p95 > 0 and p50 > 0:
+            spread_ratio = p95 / p50
+            if spread_ratio > 5:
+                anomalies.append({
+                    "type": "high_percentile_spread",
+                    "severity": "warning",
+                    "metric": "p95/p50_ratio",
+                    "value": round(spread_ratio, 2),
+                    "threshold": 5.0,
+                    "message": f"High percentile spread (p95/p50 = {spread_ratio:.1f}x) indicates inconsistent response times",
+                })
+                recommendations.append("Investigate tail latency sources; consider connection pooling or caching")
+
+        # Check for very high p99 (tail latency issues)
+        if p99 > 0 and p95 > 0:
+            tail_ratio = p99 / p95
+            if tail_ratio > 3:
+                anomalies.append({
+                    "type": "high_tail_latency",
+                    "severity": "warning",
+                    "metric": "p99/p95_ratio",
+                    "value": round(tail_ratio, 2),
+                    "threshold": 3.0,
+                    "message": f"High tail latency (p99/p95 = {tail_ratio:.1f}x) suggests occasional slow requests",
+                })
+                recommendations.append("Check for garbage collection pauses, connection timeouts, or resource contention")
+
+        # Analyze error rate
+        error_rate = result["error_rate"]
+        if error_rate > 0.1:  # >10% error rate
+            anomalies.append({
+                "type": "high_error_rate",
+                "severity": "critical",
+                "metric": "error_rate",
+                "value": error_rate,
+                "threshold": 0.1,
+                "message": f"High error rate ({error_rate*100:.1f}%) indicates significant failures",
+            })
+            recommendations.append("Check application logs for errors; verify endpoint availability")
+        elif error_rate > 0.05:  # >5% error rate
+            anomalies.append({
+                "type": "elevated_error_rate",
+                "severity": "warning",
+                "metric": "error_rate",
+                "value": error_rate,
+                "threshold": 0.05,
+                "message": f"Elevated error rate ({error_rate*100:.1f}%) warrants investigation",
+            })
+            recommendations.append("Monitor error patterns; consider circuit breaker implementation")
+
+        # Analyze throughput
+        throughput = result["throughput_rps"]
+        if throughput > 0 and result["total_requests"] > 0:
+            expected_throughput = result["total_requests"] / max(result["duration_seconds"], 1)
+            if throughput < expected_throughput * 0.7:
+                anomalies.append({
+                    "type": "low_throughput",
+                    "severity": "warning",
+                    "metric": "throughput_rps",
+                    "value": throughput,
+                    "expected": round(expected_throughput, 2),
+                    "message": "Throughput lower than expected based on request count",
+                })
+                recommendations.append("Check for bottleneck in request processing pipeline")
+
+        # Check SLA compliance
+        sla_p95 = run.get("sla_p95_ms", 0)
+        if sla_p95 > 0 and p95 > sla_p95:
+            anomalies.append({
+                "type": "sla_breach",
+                "severity": "critical",
+                "metric": "p95_ms",
+                "value": p95,
+                "threshold": sla_p95,
+                "message": f"P95 response time ({p95}ms) exceeds SLA ({sla_p95}ms)",
+            })
+            recommendations.append("Optimize slow endpoints; consider scaling infrastructure")
+
+        # Check SLA for error rate
+        max_error_rate = run.get("max_error_rate", 0)
+        if max_error_rate > 0 and error_rate > max_error_rate:
+            anomalies.append({
+                "type": "error_rate_sla_breach",
+                "severity": "critical",
+                "metric": "error_rate",
+                "value": error_rate,
+                "threshold": max_error_rate,
+                "message": f"Error rate ({error_rate*100:.1f}%) exceeds maximum allowed ({max_error_rate*100:.1f}%)",
+            })
+            recommendations.append("Investigate root cause of errors; check dependency health")
+
+        # Overall health score (0-100)
+        health_score = 100
+        for anomaly in anomalies:
+            if anomaly["severity"] == "critical":
+                health_score -= 30
+            elif anomaly["severity"] == "warning":
+                health_score -= 15
+        health_score = max(0, health_score)
+
+        return {
+            "run_id": run_id,
+            "health_score": health_score,
+            "anomaly_count": len(anomalies),
+            "critical_count": sum(1 for a in anomalies if a["severity"] == "critical"),
+            "warning_count": sum(1 for a in anomalies if a["severity"] == "warning"),
+            "anomalies": anomalies,
+            "recommendations": list(set(recommendations)),
+            "metrics": {
+                "p50_ms": p50,
+                "p95_ms": p95,
+                "p99_ms": p99,
+                "throughput_rps": throughput,
+                "error_rate": error_rate,
+                "total_requests": result["total_requests"],
+                "failed_requests": result["failed_requests"],
+                "duration_seconds": result["duration_seconds"],
+            },
+        }
+    finally:
+        connection.close()
+
+
+def detect_trend_anomalies(project_id: int | None = None) -> dict[str, Any]:
+    """Detect anomalies across multiple runs to identify trends.
+
+    Compares recent runs against historical baselines to detect:
+    - Performance regressions
+    - Throughput degradation
+    - Error rate increases
+
+    Returns trend analysis with regression indicators.
+    """
+    connection = connect_db()
+    try:
+        query = """
+            SELECT r.*, rr.p50_ms, rr.p95_ms, rr.p99_ms, rr.throughput_rps,
+                   rr.error_rate, rr.total_requests, rr.failed_requests, rr.duration_seconds
+            FROM test_runs r
+            JOIN run_results rr ON r.id = rr.run_id
+            WHERE r.status = 'completed'
+        """
+        params = []
+        if project_id:
+            query += " AND r.project_id = ?"
+            params.append(project_id)
+        query += " ORDER BY r.created_at DESC LIMIT 50"
+
+        runs = connection.execute(query, params).fetchall()
+
+        if len(runs) < 2:
+            return {"trends": [], "message": "Insufficient data for trend analysis"}
+
+        trends = []
+
+        # Group by scenario
+        scenarios: dict[int, list] = {}
+        for run in runs:
+            sid = run["scenario_id"]
+            if sid not in scenarios:
+                scenarios[sid] = []
+            scenarios[sid].append(run)
+
+        for scenario_id, scenario_runs in scenarios.items():
+            if len(scenario_runs) < 2:
+                continue
+
+            # Compare first half vs second half
+            mid = len(scenario_runs) // 2
+            recent = scenario_runs[:mid]
+            baseline = scenario_runs[mid:]
+
+            # Calculate averages
+            recent_p95 = statistics.mean([r["p95_ms"] for r in recent])
+            baseline_p95 = statistics.mean([r["p95_ms"] for r in baseline])
+
+            recent_throughput = statistics.mean([r["throughput_rps"] for r in recent])
+            baseline_throughput = statistics.mean([r["throughput_rps"] for r in baseline])
+
+            recent_error = statistics.mean([r["error_rate"] for r in recent])
+            baseline_error = statistics.mean([r["error_rate"] for r in baseline])
+
+            # Detect regressions
+            p95_change = (recent_p95 - baseline_p95) / max(baseline_p95, 1)
+            throughput_change = (recent_throughput - baseline_throughput) / max(baseline_throughput, 1)
+            error_change = (recent_error - baseline_error) / max(baseline_error, 0.001)
+
+            if p95_change > 0.2:  # >20% increase in p95
+                trends.append({
+                    "type": "performance_regression",
+                    "severity": "warning",
+                    "scenario_id": scenario_id,
+                    "metric": "p95_ms",
+                    "recent_avg": round(recent_p95, 2),
+                    "baseline_avg": round(baseline_p95, 2),
+                    "change_percent": round(p95_change * 100, 1),
+                    "message": f"P95 response time increased by {p95_change*100:.1f}%",
+                })
+
+            if throughput_change < -0.2:  # >20% decrease in throughput
+                trends.append({
+                    "type": "throughput_degradation",
+                    "severity": "warning",
+                    "scenario_id": scenario_id,
+                    "metric": "throughput_rps",
+                    "recent_avg": round(recent_throughput, 2),
+                    "baseline_avg": round(baseline_throughput, 2),
+                    "change_percent": round(throughput_change * 100, 1),
+                    "message": f"Throughput decreased by {abs(throughput_change)*100:.1f}%",
+                })
+
+            if error_change > 0.5:  # >50% increase in error rate
+                trends.append({
+                    "type": "error_rate_increase",
+                    "severity": "critical",
+                    "scenario_id": scenario_id,
+                    "metric": "error_rate",
+                    "recent_avg": round(recent_error * 100, 2),
+                    "baseline_avg": round(baseline_error * 100, 2),
+                    "change_percent": round(error_change * 100, 1),
+                    "message": f"Error rate increased by {error_change*100:.1f}%",
+                })
+
+        return {
+            "trend_count": len(trends),
+            "critical_count": sum(1 for t in trends if t["severity"] == "critical"),
+            "warning_count": sum(1 for t in trends if t["severity"] == "warning"),
+            "trends": trends,
+        }
+    finally:
+        connection.close()
+
+
+def get_anomaly_summary() -> dict[str, Any]:
+    """Get a summary of anomalies across all recent runs.
+
+    Returns overall health status and anomaly statistics.
+    """
+    connection = connect_db()
+    try:
+        # Get recent completed runs
+        runs = connection.execute(
+            """SELECT r.id FROM test_runs r
+               WHERE r.status = 'completed'
+               ORDER BY r.created_at DESC LIMIT 10"""
+        ).fetchall()
+
+        total_anomalies = 0
+        critical_count = 0
+        health_scores = []
+
+        for run in runs:
+            report = detect_anomalies(run["id"])
+            if "anomalies" in report:
+                total_anomalies += report["anomaly_count"]
+                critical_count += report["critical_count"]
+                health_scores.append(report["health_score"])
+
+        avg_health = statistics.mean(health_scores) if health_scores else 100
+
+        return {
+            "total_runs_analyzed": len(runs),
+            "total_anomalies": total_anomalies,
+            "critical_anomalies": critical_count,
+            "average_health_score": round(avg_health, 1),
+            "overall_status": "healthy" if critical_count == 0 else "degraded",
+        }
+    finally:
+        connection.close()
+
+
+# GitOps Test Configuration
+
+import hashlib
+import json as json_module
+
+
+def export_test_config(scenario_id: int) -> dict[str, Any]:
+    """Export a test scenario configuration as a Git-compatible YAML/JSON structure.
+
+    Returns a dictionary representing the test configuration that can be
+    committed to version control.
+    """
+    connection = connect_db()
+    try:
+        scenario = connection.execute(
+            "SELECT * FROM scenarios WHERE id = ?", (scenario_id,)
+        ).fetchone()
+        if scenario is None:
+            raise ValueError(f"Scenario {scenario_id} not found")
+
+        project = connection.execute(
+            "SELECT name FROM projects WHERE id = ?", (scenario["project_id"],)
+        ).fetchone()
+
+        config = {
+            "apiVersion": "marathonrunner.io/v1alpha1",
+            "kind": "TestDefinition",
+            "metadata": {
+                "name": scenario["name"].lower().replace(" ", "-"),
+                "labels": {
+                    "project": project["name"] if project else "unknown",
+                    "engine": scenario["engine"],
+                    "testType": scenario["test_type"],
+                },
+            },
+            "spec": {
+                "engine": scenario["engine"],
+                "testType": scenario["test_type"],
+                "workloadMix": scenario["workload_mix"],
+                "scriptRepository": scenario["script_repository"],
+                "targetEndpoint": scenario["target_endpoint"],
+                "slaP95Ms": scenario["sla_p95_ms"],
+                "maxErrorRate": scenario["max_error_rate"],
+            },
+        }
+
+        # Add configuration hash for drift detection
+        config_json = json_module.dumps(config["spec"], sort_keys=True)
+        config["metadata"]["annotations"] = {
+            "marathonrunner.io/config-hash": hashlib.sha256(config_json.encode()).hexdigest()[:16],
+            "marathonrunner.io/exported-at": utc_now(),
+        }
+
+        return config
+    finally:
+        connection.close()
+
+
+def import_test_config(config: dict[str, Any], project_id: int | None = None) -> dict[str, Any]:
+    """Import a test configuration from Git.
+
+    Creates or updates a scenario based on the configuration.
+    Returns the result of the import operation.
+    """
+    connection = connect_db()
+    try:
+        spec = config.get("spec", {})
+        metadata = config.get("metadata", {})
+        name = metadata.get("name", "imported-test")
+
+        engine = spec.get("engine")
+        if engine not in ENGINES:
+            raise ValueError(f"Invalid engine: {engine}. Must be one of: {ENGINES}")
+
+        # Find or create project
+        if project_id is None:
+            project_name = metadata.get("labels", {}).get("project", "GitOps")
+            project = connection.execute(
+                "SELECT id FROM projects WHERE name = ?", (project_name,)
+            ).fetchone()
+            if project is None:
+                project_id = create_entity("projects", {
+                    "name": project_name,
+                    "owner": "GitOps",
+                    "business_unit": "Automation",
+                    "risk_tier": "low",
+                }, ["name", "owner", "business_unit", "risk_tier"])["id"]
+            else:
+                project_id = project["id"]
+
+        # Check if scenario already exists
+        existing = connection.execute(
+            "SELECT id FROM scenarios WHERE project_id = ? AND name = ?",
+            (project_id, name.replace("-", " ").title())
+        ).fetchone()
+
+        scenario_data = {
+            "project_id": project_id,
+            "name": name.replace("-", " ").title(),
+            "engine": engine,
+            "test_type": spec.get("testType", "load"),
+            "workload_mix": spec.get("workloadMix", "constant"),
+            "script_repository": spec.get("scriptRepository", ""),
+            "target_endpoint": spec.get("targetEndpoint", "http://localhost"),
+            "sla_p95_ms": spec.get("slaP95Ms", 500),
+            "max_error_rate": spec.get("maxErrorRate", 0.05),
+        }
+
+        if existing:
+            # Update existing scenario
+            connection.execute(
+                """UPDATE scenarios SET engine = ?, test_type = ?, workload_mix = ?,
+                   script_repository = ?, target_endpoint = ?, sla_p95_ms = ?, max_error_rate = ?
+                   WHERE id = ?""",
+                (scenario_data["engine"], scenario_data["test_type"],
+                 scenario_data["workload_mix"], scenario_data["script_repository"],
+                 scenario_data["target_endpoint"], scenario_data["sla_p95_ms"],
+                 scenario_data["max_error_rate"], existing["id"]),
+            )
+            connection.commit()
+            return {
+                "action": "updated",
+                "scenario_id": existing["id"],
+                "name": scenario_data["name"],
+            }
+        else:
+            # Create new scenario
+            result = create_entity("scenarios", scenario_data,
+                ["project_id", "name", "engine", "test_type", "workload_mix",
+                 "script_repository", "target_endpoint", "sla_p95_ms", "max_error_rate"])
+            return {
+                "action": "created",
+                "scenario_id": result["id"],
+                "name": scenario_data["name"],
+            }
+    finally:
+        connection.close()
+
+
+def detect_config_drift(scenario_id: int, git_config: dict[str, Any]) -> dict[str, Any]:
+    """Detect configuration drift between Git and the current scenario.
+
+    Compares the Git configuration with the current database state
+    to identify any differences.
+    """
+    connection = connect_db()
+    try:
+        scenario = connection.execute(
+            "SELECT * FROM scenarios WHERE id = ?", (scenario_id,)
+        ).fetchone()
+        if scenario is None:
+            raise ValueError(f"Scenario {scenario_id} not found")
+
+        git_spec = git_config.get("spec", {})
+
+        drifts = []
+
+        field_mapping = {
+            "engine": "engine",
+            "testType": "test_type",
+            "workloadMix": "workload_mix",
+            "scriptRepository": "script_repository",
+            "targetEndpoint": "target_endpoint",
+            "slaP95Ms": "sla_p95_ms",
+            "maxErrorRate": "max_error_rate",
+        }
+
+        for git_field, db_field in field_mapping.items():
+            git_value = git_spec.get(git_field)
+            db_value = scenario[db_field]
+            if git_value is not None and git_value != db_value:
+                drifts.append({
+                    "field": git_field,
+                    "git_value": git_value,
+                    "db_value": db_value,
+                    "severity": "critical" if git_field in ("engine", "targetEndpoint") else "warning",
+                })
+
+        return {
+            "scenario_id": scenario_id,
+            "has_drift": len(drifts) > 0,
+            "drift_count": len(drifts),
+            "drifts": drifts,
+        }
+    finally:
+        connection.close()
+
+
+def get_git_config_history(project_id: int | None = None) -> list[dict[str, Any]]:
+    """Get the history of test configuration exports.
+
+    Returns list of recent configuration exports with metadata.
+    """
+    connection = connect_db()
+    try:
+        query = """
+            SELECT r.id, r.name, r.engine, r.created_at, r.status
+            FROM test_runs r
+            WHERE r.status = 'completed'
+        """
+        params = []
+        if project_id:
+            query += " AND r.project_id = ?"
+            params.append(project_id)
+        query += " ORDER BY r.created_at DESC LIMIT 20"
+
+        runs = connection.execute(query, params).fetchall()
+
+        return [
+            {
+                "run_id": run["id"],
+                "name": run["name"],
+                "engine": run["engine"],
+                "created_at": run["created_at"],
+                "status": run["status"],
+            }
+            for run in runs
+        ]
+    finally:
+        connection.close()
+
+
+def promote_config(scenario_id: int, from_env: str, to_env: str) -> dict[str, Any]:
+    """Promote a test configuration from one environment to another.
+
+    Copies the scenario configuration to the target environment.
+    """
+    connection = connect_db()
+    try:
+        scenario = connection.execute(
+            "SELECT * FROM scenarios WHERE id = ?", (scenario_id,)
+        ).fetchone()
+        if scenario is None:
+            raise ValueError(f"Scenario {scenario_id} not found")
+
+        # Find target environment
+        target_env = connection.execute(
+            "SELECT id FROM environments WHERE name = ?", (to_env,)
+        ).fetchone()
+        if target_env is None:
+            raise ValueError(f"Environment {to_env} not found")
+
+        # Create new scenario in target environment
+        new_name = f"{scenario['name']} ({to_env})"
+        result = create_entity("scenarios", {
+            "project_id": scenario["project_id"],
+            "name": new_name,
+            "engine": scenario["engine"],
+            "test_type": scenario["test_type"],
+            "workload_mix": scenario["workload_mix"],
+            "script_repository": scenario["script_repository"],
+            "target_endpoint": scenario["target_endpoint"],
+            "sla_p95_ms": scenario["sla_p95_ms"],
+            "max_error_rate": scenario["max_error_rate"],
+        }, ["project_id", "name", "engine", "test_type", "workload_mix",
+            "script_repository", "target_endpoint", "sla_p95_ms", "max_error_rate"])
+
+        return {
+            "action": "promoted",
+            "source_scenario_id": scenario_id,
+            "target_scenario_id": result["id"],
+            "from_env": from_env,
+            "to_env": to_env,
+        }
+    finally:
+        connection.close()

@@ -22,13 +22,21 @@ from .models import (
     create_run,
     dashboard,
     delete_entity,
+    detect_anomalies,
+    detect_config_drift,
+    detect_trend_anomalies,
+    export_test_config,
+    get_anomaly_summary,
     get_execution_mode,
+    get_git_config_history,
     get_k8s_cluster_nodes,
     get_k8s_testrun_status,
     get_run,
     get_runs,
     get_table,
+    import_test_config,
     list_k8s_jobs,
+    promote_config,
     start_run,
     update_entity,
 )
@@ -346,6 +354,35 @@ class MarathonRunnerHandler(BaseHTTPRequestHandler):
                 else:
                     self.send_json({"error": "TestRun CR not found"}, HTTPStatus.NOT_FOUND)
                 return
+            if path == "/api/anomalies/summary":
+                self.send_json(get_anomaly_summary())
+                return
+            if path == "/api/anomalies/trends":
+                from urllib.parse import parse_qs
+                params = parse_qs(parsed.query)
+                project_id = params.get("project_id", [None])[0]
+                project_id = int(project_id) if project_id else None
+                self.send_json(detect_trend_anomalies(project_id))
+                return
+            anomaly_run_id = path_id(path, "/api/runs/", "/anomalies")
+            if anomaly_run_id is not None:
+                self.send_json(detect_anomalies(anomaly_run_id))
+                return
+            if path == "/api/git/history":
+                from urllib.parse import parse_qs
+                params = parse_qs(parsed.query)
+                project_id = params.get("project_id", [None])[0]
+                project_id = int(project_id) if project_id else None
+                self.send_json({"history": get_git_config_history(project_id)})
+                return
+            export_id = path_id(path, "/api/scenarios/", "/export")
+            if export_id is not None:
+                self.send_json(export_test_config(export_id))
+                return
+            drift_id = path_id(path, "/api/scenarios/", "/drift")
+            if drift_id is not None:
+                self.send_json(detect_config_drift(drift_id, {}))
+                return
             self.serve_static(path)
         except (ValueError, Exception) as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -482,6 +519,18 @@ class MarathonRunnerHandler(BaseHTTPRequestHandler):
                     return
                 spec = build_k8s_testrun_spec(run_data, engine_adapter)
                 self.send_json({"testrun": spec}, HTTPStatus.CREATED)
+                return
+            if path == "/api/git/import":
+                project_id = payload.get("project_id")
+                result = import_test_config(payload, project_id)
+                self.send_json({"result": result}, HTTPStatus.CREATED)
+                return
+            promote_id = path_id(path, "/api/scenarios/", "/promote")
+            if promote_id is not None:
+                from_env = payload.get("from_env", "dev")
+                to_env = payload.get("to_env", "staging")
+                result = promote_config(promote_id, from_env, to_env)
+                self.send_json({"result": result})
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
         except (ValueError, json.JSONDecodeError, Exception) as exc:
