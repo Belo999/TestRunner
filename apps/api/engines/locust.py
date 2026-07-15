@@ -49,3 +49,19 @@ class LocustEngine(Engine):
 
     def parse_results(self, result_dir: str) -> EngineResult:
         return parse_locust_results(result_dir)
+
+    def build_k8s_job_spec(self, run_config: dict[str, Any]) -> dict[str, Any]:
+        job = super().build_k8s_job_spec(run_config)
+        container = job["spec"]["template"]["spec"]["containers"][0]
+        run_time = f"{run_config['duration_minutes']}m"
+        container["command"] = [
+            "locust", "-f", "/scripts/locustfile.py",
+            "--headless",
+            "-u", str(run_config["target_vusers"]),
+            "-r", str(min(10, run_config["target_vusers"])),
+            "--run-time", run_time,
+            "--host", run_config["target_endpoint"],
+            "--csv", "/results/stats",
+            "--html", "/results/report.html",
+        ]
+        return job

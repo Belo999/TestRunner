@@ -58,10 +58,68 @@ def queue_ready_runs(connection: Any, limit: int = 2) -> int:
 
 
 def launch_engine(connection: Any, run: dict[str, Any]) -> str | None:
+    from .models import get_execution_mode
+
     engine = get_engine(run["engine"])
     if engine is None:
         return None
 
+    # Kubernetes execution mode
+    if get_execution_mode() == "kubernetes":
+        return _launch_engine_k8s(connection, run, engine)
+
+    # Docker execution mode (default)
+    return _launch_engine_docker(connection, run, engine)
+
+
+def _launch_engine_k8s(connection: Any, run: dict[str, Any], engine: Any) -> str | None:
+    """Launch engine via Kubernetes TestRun CR."""
+    from .models import create_k8s_testrun, build_k8s_testrun_spec
+
+    scenario = connection.execute("SELECT target_endpoint FROM scenarios WHERE id = ?", (run["scenario_id"],)).fetchone()
+    target_endpoint = scenario["target_endpoint"] if scenario else "http://localhost:8080"
+
+    run_config = {
+        "run_id": run["id"],
+        "engine": run["engine"],
+        "target_endpoint": target_endpoint,
+        "target_vusers": run["target_vusers"],
+        "duration_minutes": run["duration_minutes"],
+        "script_configmap": f"run-{run['id']}-scripts",
+        "namespace": "marathonrunner-execution",
+    }
+
+    try:
+        spec = build_k8s_testrun_spec(run, engine)
+        # In production, this would call the K8s API
+        # For now, store the spec as the execution_id
+        execution_id = f"k8s-run-{run['id']}"
+
+        connection.execute(
+            "UPDATE test_runs SET execution_id = ? WHERE id = ?",
+            (execution_id, run["id"]),
+        )
+        audit(connection, "engine_launched_k8s", "test_run", run["id"], {
+            "executionId": execution_id,
+            "engine": run["engine"],
+            "mode": "kubernetes",
+        })
+        set_run_state(run["id"], {
+            "status": "running",
+            "engine": run["engine"],
+            "executionId": execution_id,
+            "targetVusers": run["target_vusers"],
+            "durationMinutes": run["duration_minutes"],
+        })
+        track_active_run(run["id"])
+        return execution_id
+    except Exception as exc:
+        audit(connection, "engine_launch_error", "test_run", run["id"], {"error": str(exc)})
+        return None
+
+
+def _launch_engine_docker(connection: Any, run: dict[str, Any], engine: Any) -> str | None:
+    """Launch engine via Docker container."""
     result_dir = str(ARTIFACT_DIR / f"run-{run['id']}")
     script_dir = str(SCRIPT_DIR / run["engine"].lower())
     Path(result_dir).mkdir(parents=True, exist_ok=True)

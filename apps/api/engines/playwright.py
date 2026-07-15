@@ -42,3 +42,9 @@ class PlaywrightEngine(Engine):
 
     def parse_results(self, result_dir: str) -> EngineResult:
         return parse_playwright_results(result_dir)
+
+    def build_k8s_job_spec(self, run_config: dict[str, Any]) -> dict[str, Any]:
+        job = super().build_k8s_job_spec(run_config)
+        container = job["spec"]["template"]["spec"]["containers"][0]
+        container["command"] = ["npx", "playwright", "test", "--config=/scripts/playwright.config.js"]
+        return job

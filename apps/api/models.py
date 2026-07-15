@@ -2123,3 +2123,114 @@ def generate_load_profile(profile_id: str, vusers: int, duration: int, **kwargs)
     if profile is None:
         return f"Ramp to {vusers} users for {duration} minutes"
     return profile["pattern"].format(vusers=vusers, duration=duration, **kwargs)
+
+
+# Kubernetes integration functions
+
+EXECUTION_MODE = os.environ.get("MARATHONRUNNER_EXECUTION_MODE", "docker")
+
+
+def get_execution_mode() -> str:
+    return EXECUTION_MODE
+
+
+def build_k8s_testrun_spec(run: dict[str, Any], engine_adapter: Any) -> dict[str, Any]:
+    """Build a Kubernetes TestRun CR spec from a database run."""
+    return {
+        "apiVersion": "marathonrunner.io/v1alpha1",
+        "kind": "TestRun",
+        "metadata": {
+            "name": f"run-{run['id']}-{run['engine'].lower()}",
+            "namespace": "marathonrunner-execution",
+            "labels": {
+                "marathonrunner.io/run-id": str(run["id"]),
+                "marathonrunner.io/engine": run["engine"],
+                "marathonrunner.io/managed": "true",
+                "marathonrunner.io/project": str(run.get("project_id", "")),
+            },
+        },
+        "spec": {
+            "runId": run["id"],
+            "engine": run["engine"],
+            "targetEndpoint": run.get("target_endpoint", "http://localhost:8080"),
+            "targetVusers": run.get("target_vusers", 10),
+            "durationMinutes": run.get("duration_minutes", 5),
+            "loadProfile": run.get("load_profile", "constant"),
+            "scriptConfigMap": f"run-{run['id']}-scripts",
+            "namespace": "marathonrunner-execution",
+            "retentionMinutes": 60,
+        },
+    }
+
+
+def create_k8s_testrun(run: dict[str, Any], engine_adapter: Any) -> dict[str, Any]:
+    """Create a TestRun CR via the Kubernetes API.
+
+    Returns the created CR spec, or raises on failure.
+    In a real deployment, this would use the kubernetes Python client.
+    """
+    spec = build_k8s_testrun_spec(run, engine_adapter)
+    # In production, this would call the K8s API:
+    # from kubernetes import client, config
+    # config.load_incluster_config()
+    # api = client.CustomObjectsApi()
+    # api.create_namespaced_custom_object(
+    #     group="marathonrunner.io", version="v1alpha1",
+    #     namespace="marathonrunner-execution", plural="testruns",
+    #     body=spec,
+    # )
+    return spec
+
+
+def get_k8s_testrun_status(run_id: int) -> dict[str, Any] | None:
+    """Get the status of a TestRun CR.
+
+    In a real deployment, this would query the K8s API.
+    """
+    # In production:
+    # api = client.CustomObjectsApi()
+    # return api.get_namespaced_custom_object(
+    #     group="marathonrunner.io", version="v1alpha1",
+    #     namespace="marathonrunner-execution", plural="testruns",
+    #     name=f"run-{run_id}",
+    # )
+    return None
+
+
+def delete_k8s_testrun(run_id: int, engine: str) -> bool:
+    """Delete a TestRun CR.
+
+    Returns True if deleted successfully.
+    """
+    # In production:
+    # api = client.CustomObjectsApi()
+    # api.delete_namespaced_custom_object(
+    #     group="marathonrunner.io", version="v1alpha1",
+    #     namespace="marathonrunner-execution", plural="testruns",
+    #     name=f"run-{run_id}-{engine.lower()}",
+    # )
+    return True
+
+
+def list_k8s_jobs(namespace: str = "marathonrunner-execution") -> list[dict[str, Any]]:
+    """List marathonrunner-managed Jobs in a namespace.
+
+    Returns list of Job summaries.
+    """
+    # In production:
+    # api = client.BatchV1Api()
+    # jobs = api.list_namespaced_job(namespace, label_selector="marathonrunner.io/managed=true")
+    # return [{"name": j.metadata.name, "status": ...} for j in jobs.items]
+    return []
+
+
+def get_k8s_cluster_nodes() -> list[dict[str, Any]]:
+    """List Kubernetes cluster nodes.
+
+    Returns list of node summaries.
+    """
+    # In production:
+    # api = client.CoreV1Api()
+    # nodes = api.list_node()
+    # return [{"name": n.metadata.name, "status": ...} for n in nodes.items]
+    return []

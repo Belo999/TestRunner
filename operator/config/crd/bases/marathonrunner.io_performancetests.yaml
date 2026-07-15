@@ -1,0 +1,164 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: performancetests.marathonrunner.io
+spec:
+  group: marathonrunner.io
+  names:
+    kind: PerformanceTest
+    listKind: PerformanceTestList
+    plural: performancetests
+    singular: performancetest
+    shortNames:
+      - pt
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Runs
+          type: integer
+          jsonPath: .spec.runs
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: PerformanceTest is the Schema for the performancetests API
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: PerformanceTestSpec defines the desired state of PerformanceTest
+              required:
+                - projectId
+                - environmentId
+                - runs
+              properties:
+                projectId:
+                  type: integer
+                  format: int64
+                  description: MarathonRunner project ID
+                environmentId:
+                  type: integer
+                  format: int64
+                  description: Target environment ID
+                runs:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    description: A single test run definition
+                    required:
+                      - name
+                      - engine
+                      - targetVusers
+                      - durationMinutes
+                    properties:
+                      name:
+                        type: string
+                        description: Descriptive name for this run
+                      engine:
+                        type: string
+                        enum:
+                          - k6
+                          - JMeter
+                          - Gatling
+                          - Locust
+                          - Playwright
+                        description: Test engine adapter name
+                      targetEndpoint:
+                        type: string
+                        description: URL of the system under test
+                      targetVusers:
+                        type: integer
+                        format: int32
+                        minimum: 1
+                        description: Number of virtual users
+                      durationMinutes:
+                        type: integer
+                        format: int32
+                        minimum: 1
+                        description: Test duration in minutes
+                      loadProfile:
+                        type: string
+                        default: constant
+                        description: Load profile type
+                policy:
+                  type: object
+                  description: Governance policies
+                  properties:
+                    approvalRequired:
+                      type: boolean
+                      default: false
+                      description: Whether manual approval is needed
+                    maxRiskScore:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      maximum: 100
+                      default: 100
+                      description: Maximum acceptable risk score
+                    executionWindow:
+                      type: object
+                      description: When the test can run
+                      properties:
+                        startHour:
+                          type: integer
+                          format: int32
+                          minimum: 0
+                          maximum: 23
+                        endHour:
+                          type: integer
+                          format: int32
+                          minimum: 0
+                          maximum: 23
+                        timezone:
+                          type: string
+                          default: UTC
+                          description: IANA timezone name
+            status:
+              type: object
+              description: PerformanceTestStatus defines the observed state of PerformanceTest
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - InProgress
+                    - Succeeded
+                    - Failed
+                startTime:
+                  type: string
+                  format: date-time
+                completionTime:
+                  type: string
+                  format: date-time
+                runs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      runRef:
+                        type: string
+                      status:
+                        type: string
+                observedGeneration:
+                  type: integer
+                  format: int64
+                message:
+                  type: string

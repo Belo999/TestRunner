@@ -1,0 +1,28 @@
+apiVersion: marathonrunner.io/v1alpha1
+kind: PerformanceTest
+metadata:
+  name: regression-suite-sample
+  namespace: marathonrunner-execution
+spec:
+  projectId: 1
+  environmentId: 1
+  runs:
+    - name: k6-load-test
+      engine: k6
+      targetEndpoint: https://httpbin.org
+      targetVusers: 50
+      durationMinutes: 5
+      loadProfile: constant
+    - name: jmeter-stress-test
+      engine: JMeter
+      targetEndpoint: https://httpbin.org
+      targetVusers: 100
+      durationMinutes: 10
+      loadProfile: ramping
+  policy:
+    approvalRequired: false
+    maxRiskScore: 80
+    executionWindow:
+      startHour: 8
+      endHour: 22
+      timezone: UTC

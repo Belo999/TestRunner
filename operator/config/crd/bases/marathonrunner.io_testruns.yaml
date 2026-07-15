@@ -1,0 +1,193 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: testruns.marathonrunner.io
+spec:
+  group: marathonrunner.io
+  names:
+    kind: TestRun
+    listKind: TestRunList
+    plural: testruns
+    singular: testrun
+    shortNames:
+      - tr
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Engine
+          type: string
+          jsonPath: .spec.engine
+        - name: VUsers
+          type: integer
+          jsonPath: .spec.targetVusers
+        - name: Duration
+          type: integer
+          jsonPath: .spec.durationMinutes
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: TestRun is the Schema for the testruns API
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: TestRunSpec defines the desired state of TestRun
+              required:
+                - runId
+                - engine
+                - targetEndpoint
+                - targetVusers
+                - durationMinutes
+                - scriptConfigMap
+              properties:
+                runId:
+                  type: integer
+                  format: int64
+                  description: MarathonRunner database run ID
+                engine:
+                  type: string
+                  enum:
+                    - k6
+                    - JMeter
+                    - Gatling
+                    - Locust
+                    - Playwright
+                  description: Test engine adapter name
+                targetEndpoint:
+                  type: string
+                  description: URL of the system under test
+                targetVusers:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Number of virtual users
+                durationMinutes:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Test duration in minutes
+                loadProfile:
+                  type: string
+                  default: constant
+                  description: Load profile type
+                scriptConfigMap:
+                  type: string
+                  description: ConfigMap containing test scripts
+                resultVolume:
+                  type: string
+                  description: Volume for storing test results
+                resources:
+                  type: object
+                  description: Resource requirements for the engine container
+                  properties:
+                    requests:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
+                    limits:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Labels for the Job and Pod
+                namespace:
+                  type: string
+                  default: marathonrunner-execution
+                  description: Target namespace
+                retentionMinutes:
+                  type: integer
+                  format: int32
+                  default: 60
+                  description: Minutes to keep Job after completion
+            status:
+              type: object
+              description: TestRunStatus defines the observed state of TestRun
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Running
+                    - Succeeded
+                    - Failed
+                startTime:
+                  type: string
+                  format: date-time
+                completionTime:
+                  type: string
+                  format: date-time
+                jobName:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                results:
+                  type: object
+                  properties:
+                    p50Ms:
+                      type: integer
+                      format: int32
+                    p95Ms:
+                      type: integer
+                      format: int32
+                    p99Ms:
+                      type: integer
+                      format: int32
+                    throughputRps:
+                      type: number
+                      format: double
+                    errorRate:
+                      type: number
+                      format: double
+                    totalRequests:
+                      type: integer
+                      format: int64
+                    failedRequests:
+                      type: integer
+                      format: int64
+                    durationSeconds:
+                      type: number
+                      format: double
+                observedGeneration:
+                  type: integer
+                  format: int64
+                message:
+                  type: string

@@ -56,3 +56,25 @@ class JMeterEngine(Engine):
 
     def parse_results(self, result_dir: str) -> EngineResult:
         return parse_jtl(result_dir)
+
+    def build_k8s_job_spec(self, run_config: dict[str, Any]) -> dict[str, Any]:
+        job = super().build_k8s_job_spec(run_config)
+        container = job["spec"]["template"]["spec"]["containers"][0]
+        duration_seconds = run_config["duration_minutes"] * 60
+        target_endpoint = run_config["target_endpoint"]
+        parsed = urlparse(target_endpoint)
+        host = parsed.hostname or target_endpoint
+        port = str(parsed.port) if parsed.port else ""
+        protocol = parsed.scheme or "http"
+        container["command"] = [
+            "jmeter", "-n",
+            "-t", "/scripts/test-plan.jmx",
+            "-Jthreads", str(run_config["target_vusers"]),
+            "-Jduration", str(duration_seconds),
+            "-Jhost", host,
+            "-Jport", port,
+            "-Jprotocol", protocol,
+            "-l", "/results/results.jtl",
+            "-e", "-o", "/results/report",
+        ]
+        return job

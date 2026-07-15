@@ -56,3 +56,23 @@ class GatlingEngine(Engine):
 
     def parse_results(self, result_dir: str) -> EngineResult:
         return parse_gatling_results(result_dir)
+
+    def build_k8s_job_spec(self, run_config: dict[str, Any]) -> dict[str, Any]:
+        job = super().build_k8s_job_spec(run_config)
+        container = job["spec"]["template"]["spec"]["containers"][0]
+        from urllib.parse import urlparse
+        parsed = urlparse(run_config["target_endpoint"])
+        host = parsed.hostname or "localhost"
+        port = str(parsed.port or 8080)
+        protocol = parsed.scheme or "http"
+        container["command"] = [
+            "gatling", "-nr", "-s", "simulation.BasicSimulation",
+            "-Dyield=false",
+            f"-Dsimulation.host={host}",
+            f"-Dsimulation.port={port}",
+            f"-Dsimulation.protocol={protocol}",
+            f"-Dsimulation.users={run_config['target_vusers']}",
+            f"-Dsimulation.duration={run_config['duration_minutes']}",
+            "-rf", "/results",
+        ]
+        return job

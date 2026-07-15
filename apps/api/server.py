@@ -22,9 +22,13 @@ from .models import (
     create_run,
     dashboard,
     delete_entity,
+    get_execution_mode,
+    get_k8s_cluster_nodes,
+    get_k8s_testrun_status,
     get_run,
     get_runs,
     get_table,
+    list_k8s_jobs,
     start_run,
     update_entity,
 )
@@ -325,6 +329,23 @@ class MarathonRunnerHandler(BaseHTTPRequestHandler):
                 from .models import check_environment_readiness
                 self.send_json(check_environment_readiness(env_id))
                 return
+            if path == "/api/k8s/mode":
+                self.send_json({"mode": get_execution_mode()})
+                return
+            if path == "/api/k8s/nodes":
+                self.send_json({"nodes": get_k8s_cluster_nodes()})
+                return
+            if path == "/api/k8s/jobs":
+                self.send_json({"jobs": list_k8s_jobs()})
+                return
+            k8s_run_id = path_id(path, "/api/runs/", "/k8s-status")
+            if k8s_run_id is not None:
+                status = get_k8s_testrun_status(k8s_run_id)
+                if status:
+                    self.send_json({"status": status})
+                else:
+                    self.send_json({"error": "TestRun CR not found"}, HTTPStatus.NOT_FOUND)
+                return
             self.serve_static(path)
         except (ValueError, Exception) as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -449,6 +470,18 @@ class MarathonRunnerHandler(BaseHTTPRequestHandler):
             if template_id is not None:
                 from .models import create_run_from_template
                 self.send_json({"run": create_run_from_template(template_id, payload)}, HTTPStatus.CREATED)
+                return
+            k8s_launch_id = path_id(path, "/api/runs/", "/k8s-launch")
+            if k8s_launch_id is not None:
+                from .models import create_k8s_testrun, build_k8s_testrun_spec
+                from .engines import get_engine
+                run_data = get_run(k8s_launch_id)
+                engine_adapter = get_engine(run_data["engine"])
+                if engine_adapter is None:
+                    self.send_json({"error": f"Unknown engine: {run_data['engine']}"}, HTTPStatus.BAD_REQUEST)
+                    return
+                spec = build_k8s_testrun_spec(run_data, engine_adapter)
+                self.send_json({"testrun": spec}, HTTPStatus.CREATED)
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
         except (ValueError, json.JSONDecodeError, Exception) as exc:
