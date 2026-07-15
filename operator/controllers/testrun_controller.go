@@ -106,19 +106,70 @@ func (r *TestRunReconciler) handleDeletion(ctx context.Context, testRun *maratho
 
 func (r *TestRunReconciler) reconcilePending(ctx context.Context, testRun *marathonrunnerv1alpha1.TestRun) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	// If Job already exists, check its status and transition
+	if testRun.Status.JobName != "" {
+		var existingJob batchv1.Job
+		err := r.Get(ctx, types.NamespacedName{
+			Name:      testRun.Status.JobName,
+			Namespace: testRun.Namespace,
+		}, &existingJob)
+		if err == nil {
+			// Job exists - check if it's running
+			if existingJob.Status.Active > 0 {
+				logger.Info("Job is running", "job", existingJob.Name)
+				testRun.Status.Phase = marathonrunnerv1alpha1.TestRunPhaseRunning
+				testRun.Status.Message = "Test is running"
+				testRun.Status.ObservedGeneration = testRun.Generation
+				if err := r.Status().Update(ctx, testRun); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+			}
+			if existingJob.Status.Succeeded > 0 {
+				now := metav1.Now()
+				testRun.Status.Phase = marathonrunnerv1alpha1.TestRunPhaseSucceeded
+				testRun.Status.CompletionTime = &now
+				testRun.Status.Message = "Test completed successfully"
+				testRun.Status.ObservedGeneration = testRun.Generation
+				r.setCondition(testRun, "Complete", "True", "JobSucceeded", "All pods completed successfully")
+				if err := r.Status().Update(ctx, testRun); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
+			}
+			if existingJob.Status.Failed > 0 {
+				now := metav1.Now()
+				testRun.Status.Phase = marathonrunnerv1alpha1.TestRunPhaseFailed
+				testRun.Status.CompletionTime = &now
+				testRun.Status.Message = "Test failed"
+				testRun.Status.ObservedGeneration = testRun.Generation
+				r.setCondition(testRun, "Complete", "True", "JobFailed", "One or more pods failed")
+				if err := r.Status().Update(ctx, testRun); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
+			}
+			// Job exists but no active/succeeded/failed yet - requeue
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		if !errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Job doesn't exist yet - create it
 	logger.Info("Creating Job for TestRun", "runId", testRun.Spec.RunID, "engine", testRun.Spec.Engine)
 
-	// Build the Job spec from the engine configuration
 	job, err := r.buildJob(testRun)
 	if err != nil {
 		logger.Error(err, "Failed to build Job spec")
 		return r.updateStatus(ctx, testRun, marathonrunnerv1alpha1.TestRunPhaseFailed, err.Error())
 	}
 
-	// Create the Job
 	if err := r.Create(ctx, job); err != nil {
 		if errors.IsAlreadyExists(err) {
-			logger.Info("Job already exists, updating status")
+			logger.Info("Job already exists")
 		} else {
 			logger.Error(err, "Failed to create Job")
 			return r.updateStatus(ctx, testRun, marathonrunnerv1alpha1.TestRunPhaseFailed, fmt.Sprintf("Failed to create Job: %v", err))
