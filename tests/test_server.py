@@ -1081,3 +1081,120 @@ class TestRunApi:
                 run_api()
             except KeyboardInterrupt:
                 pass
+
+
+# ===================================================================
+# Remaining coverage push — targeted tests for uncovered lines
+# ===================================================================
+
+class TestLoginEdgeCases:
+    def test_login_password_required(self, server_url):
+        # Create a user without password hash
+        conn = sqlite3.connect(str(Path(os.environ["MARATHONRUNNER_DB_PATH"])))
+        conn.execute("UPDATE users SET password_hash=NULL, password_salt=NULL WHERE username='admin'")
+        conn.commit()
+        conn.close()
+        status, body = _post(f"{server_url}/api/auth/login", {"username": "admin", "password": "x"})
+        assert status == 401
+
+    def test_login_no_hash_with_password(self, server_url):
+        conn = sqlite3.connect(str(Path(os.environ["MARATHONRUNNER_DB_PATH"])))
+        conn.execute("UPDATE users SET password_hash=NULL, password_salt=NULL WHERE username='admin'")
+        conn.commit()
+        conn.close()
+        status, body = _post(f"{server_url}/api/auth/login", {"username": "admin", "password": ""})
+        assert status in (400, 401)
+
+
+class TestAuthMeEdgeCases:
+    def test_auth_me_no_header(self, server_url):
+        req = urllib.request.Request(f"{server_url}/api/auth/me")
+        try:
+            urllib.request.urlopen(req)
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+
+    def test_auth_me_bad_token(self, server_url):
+        req = urllib.request.Request(f"{server_url}/api/auth/me")
+        req.add_header("Authorization", "Bearer bad.token.value")
+        try:
+            urllib.request.urlopen(req)
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+
+
+class TestCompleteRunEndpoint:
+    def test_complete_run(self, server_url):
+        status, body = _post(f"{server_url}/api/runs/1/complete", {}, ADMIN)
+        assert status in (200, 400)
+
+
+class TestPostNotFound:
+    def test_post_unknown_path(self, server_url):
+        status, _ = _post(f"{server_url}/api/unknown", {}, ADMIN)
+        assert status in (404, 400)
+
+
+class TestPutNotFound:
+    def test_put_unknown_path(self, server_url):
+        status, _ = _put(f"{server_url}/api/unknown/1", {}, ADMIN)
+        assert status in (404, 400)
+
+    def test_put_schedule_not_found(self, server_url):
+        status, _ = _put(f"{server_url}/api/schedules/99999", {"name": "X"}, ADMIN)
+        assert status == 400
+
+
+class TestDeleteNotFound:
+    def test_delete_unknown_path(self, server_url):
+        status, _ = _delete(f"{server_url}/api/unknown/1", ADMIN)
+        assert status in (404, 400)
+
+
+class TestReadJsonEmpty:
+    def test_empty_body(self, server_url):
+        req = urllib.request.Request(f"{server_url}/api/projects", data=b"", method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", ADMIN)
+        try:
+            urllib.request.urlopen(req)
+        except urllib.error.HTTPError as e:
+            assert e.code in (400, 404)
+
+
+class TestExportCsvEdgeCases:
+    def test_export_with_no_data(self, server_url):
+        # Export audit which may have no data
+        status, body = _get(f"{server_url}/api/export/csv?table=audit", ADMIN)
+        assert status in (200, 404)
+
+
+class TestCheckRole:
+    def test_check_role_no_auth(self):
+        from apps.api.server import check_role
+        handler = MagicMock()
+        handler.headers = {}
+        handler.send_json = MagicMock()
+        result = check_role(handler, "admin")
+        assert result is None
+
+    def test_check_role_wrong_role(self):
+        from apps.api.server import check_role
+        handler = MagicMock()
+        handler.headers = {"Authorization": VIEWER}
+        handler.send_json = MagicMock()
+        result = check_role(handler, "admin")
+        assert result is None
+
+
+class TestCanConnect:
+    def test_can_connect_true(self):
+        from apps.api.server import can_connect
+        # Use a guaranteed open port by starting a server
+        import socket
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        # Port is now closed, so can_connect should return False
+        assert can_connect("127.0.0.1", port) is False

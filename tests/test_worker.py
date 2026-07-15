@@ -498,3 +498,95 @@ class TestProcessWorkerTickEdgeCases:
         tmp_db.execute("INSERT INTO scenarios (project_id, name, engine, test_type, workload_mix, script_repository, target_endpoint, sla_p95_ms, max_error_rate, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                         (1, "S1", "k6", "load", "mixed", "repo", "http://localhost", 500, 1.0, now))
         tmp_db.commit()
+
+
+class TestLaunchEngineException:
+    def test_launch_generic_exception(self, tmp_db, tmp_path):
+        from apps.api.database import utc_now
+        now = utc_now()
+        tmp_db.execute("INSERT INTO projects (name, owner, business_unit, risk_tier, created_at) VALUES (?,?,?,?,?)",
+                        ("P1", "admin", "BU", "low", now))
+        tmp_db.execute("INSERT INTO environments (name, region, classification, readiness_status, service_virtualization_enabled, data_residency, updated_at) VALUES (?,?,?,?,?,?,?)",
+                        ("dev", "us-east-1", "internal", "ready", 0, "US", now))
+        tmp_db.execute("INSERT INTO scenarios (project_id, name, engine, test_type, workload_mix, script_repository, target_endpoint, sla_p95_ms, max_error_rate, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (1, "S1", "k6", "load", "mixed", "repo", "http://localhost", 500, 1.0, now))
+        tmp_db.execute(
+            "INSERT INTO test_runs (project_id, scenario_id, environment_id, name, engine, load_profile, target_vusers, duration_minutes, status, quality_gate, risk_score, correlation_id, ai_summary, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (1, 1, 1, "Run", "k6", "constant", 100, 5, "running", "pass", 85, "corr-1", "summary", now),
+        )
+        tmp_db.commit()
+        run = dict(tmp_db.execute("SELECT * FROM test_runs WHERE id=1").fetchone())
+        with patch("apps.api.worker.get_engine") as mock_get, \
+             patch("apps.api.worker.subprocess.run", side_effect=Exception("generic error")), \
+             patch("apps.api.worker.ARTIFACT_DIR", tmp_path), \
+             patch("apps.api.worker.SCRIPT_DIR", tmp_path):
+            mock_get.return_value.build_docker_command.return_value = ["docker", "run"]
+            result = launch_engine(tmp_db, run)
+            assert result is None
+
+
+class TestProcessWorkerTickScheduleException:
+    def test_schedule_check_exception(self, monkeypatch):
+        monkeypatch.setattr("apps.api.worker.connect_db", MagicMock(side_effect=Exception("DB down")))
+        summary = process_worker_tick()
+        assert summary["queued"] == 0
+
+
+class TestProcessWorkerTickStartRunException:
+    def test_start_run_exception(self, tmp_db, monkeypatch):
+        from apps.api.database import utc_now
+        now = utc_now()
+        tmp_db.execute("INSERT INTO projects (name, owner, business_unit, risk_tier, created_at) VALUES (?,?,?,?,?)",
+                        ("P1", "admin", "BU", "low", now))
+        tmp_db.execute("INSERT INTO environments (name, region, classification, readiness_status, service_virtualization_enabled, data_residency, updated_at) VALUES (?,?,?,?,?,?,?)",
+                        ("dev", "us-east-1", "internal", "ready", 0, "US", now))
+        tmp_db.execute("INSERT INTO scenarios (project_id, name, engine, test_type, workload_mix, script_repository, target_endpoint, sla_p95_ms, max_error_rate, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (1, "S1", "k6", "load", "mixed", "repo", "http://localhost", 500, 1.0, now))
+        tmp_db.execute(
+            "INSERT INTO test_runs (project_id, scenario_id, environment_id, name, engine, load_profile, target_vusers, duration_minutes, status, quality_gate, risk_score, correlation_id, ai_summary, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (1, 1, 1, "Run", "k6", "constant", 100, 5, "queued", "pass", 85, "corr-1", "summary", now),
+        )
+        tmp_db.commit()
+        monkeypatch.setattr("apps.api.worker.connect_db", lambda: tmp_db)
+        with patch("apps.api.worker.get_run", side_effect=Exception("DB locked")), \
+             patch("apps.api.worker.clear_run_state"), \
+             patch("apps.api.worker.untrack_active_run"):
+            summary = process_worker_tick()
+        assert summary["started"] == 0
+        assert summary["completed"] == 0
+
+
+class TestProcessWorkerTickElapsedTimeout:
+    def test_elapsed_timeout(self, tmp_db, monkeypatch, tmp_path):
+        from apps.api.database import utc_now
+        from datetime import datetime as dt_module, timedelta, timezone
+        now = utc_now()
+        old_time = (dt_module.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        tmp_db.execute("INSERT INTO projects (name, owner, business_unit, risk_tier, created_at) VALUES (?,?,?,?,?)",
+                        ("P1", "admin", "BU", "low", now))
+        tmp_db.execute("INSERT INTO environments (name, region, classification, readiness_status, service_virtualization_enabled, data_residency, updated_at) VALUES (?,?,?,?,?,?,?)",
+                        ("dev", "us-east-1", "internal", "ready", 0, "US", now))
+        tmp_db.execute("INSERT INTO scenarios (project_id, name, engine, test_type, workload_mix, script_repository, target_endpoint, sla_p95_ms, max_error_rate, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (1, "S1", "k6", "load", "mixed", "repo", "http://localhost", 500, 1.0, now))
+        tmp_db.execute(
+            "INSERT INTO test_runs (project_id, scenario_id, environment_id, name, engine, load_profile, target_vusers, duration_minutes, status, quality_gate, risk_score, correlation_id, ai_summary, started_at, execution_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (1, 1, 1, "Run", "k6", "constant", 100, 5, "running", "pass", 85, "corr-1", "summary", old_time, "container1", now),
+        )
+        tmp_db.commit()
+        monkeypatch.setattr("apps.api.worker.connect_db", lambda: tmp_db)
+        monkeypatch.setattr("apps.api.worker.WORKER_COMPLETE_SECONDS", 0)
+        er = MagicMock(total_requests=50, p50_ms=50, p95_ms=200, p99_ms=300,
+                       throughput_rps=10.0, error_rate=0.1, failed_requests=0, duration_seconds=60.0)
+        with patch("apps.api.worker.check_container_running", return_value=True), \
+             patch("apps.api.worker.get_engine") as mock_get, \
+             patch("apps.api.models.write_result_artifact", return_value="/tmp/r.json"), \
+             patch("apps.api.models.upload_artifact", return_value="s3://b/r.json"), \
+             patch("apps.api.models.trigger_webhooks"), \
+             patch("apps.api.worker.remove_container"), \
+             patch("apps.api.models.measure_redis_latency_ms", return_value=1), \
+             patch("apps.api.models.measure_db_latency_ms", return_value=1), \
+             patch("apps.api.worker.ARTIFACT_DIR", tmp_path):
+            mock_get.return_value.parse_results.return_value = er
+            (tmp_path / "run-1").mkdir()
+            summary = process_worker_tick()
+        assert summary["completed"] >= 1

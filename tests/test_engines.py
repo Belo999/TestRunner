@@ -493,3 +493,46 @@ class TestPlaywrightParserEdgeCases:
         (tmp_result_dir / "report.json").write_text(json.dumps(report))
         result = parse_playwright_results(str(tmp_result_dir))
         assert result.total_requests == 2
+
+    def test_empty_durations_returns_zeros(self, tmp_result_dir: Path):
+        from apps.api.engines.playwright_parser import parse_playwright_results
+        report = {"suites": [{"specs": [{"tests": []}]}]}
+        (tmp_result_dir / "report.json").write_text(json.dumps(report))
+        result = parse_playwright_results(str(tmp_result_dir))
+        assert result.total_requests == 0
+
+
+class TestK6ParserEdgeCasesFull:
+    def test_get_metric_value_default(self):
+        from apps.api.engines.k6_parser import _get_metric_value
+        result = _get_metric_value({}, "nonexistent", default=42.0)
+        assert result == 42.0
+
+    def test_failed_rate_from_value(self, tmp_result_dir: Path):
+        from apps.api.engines.k6_parser import parse_k6_summary
+        summary = {
+            "metrics": {
+                "http_req_duration": {"values": {"p(50)": 100, "p(95)": 200, "p(99)": 300}},
+                "http_reqs": {"values": {"count": 50, "rate": 10.0}},
+                "http_req_failed": {"value": 0.1},
+            }
+        }
+        (tmp_result_dir / "summary.json").write_text(json.dumps(summary))
+        result = parse_k6_summary(str(tmp_result_dir))
+        assert result.error_rate == 10.0
+
+
+class TestGatlingParserEmpty:
+    def test_empty_csv(self, tmp_result_dir: Path):
+        from apps.api.engines.gatling_parser import parse_gatling_results
+        (tmp_result_dir / "stats.csv").write_text("")
+        result = parse_gatling_results(str(tmp_result_dir))
+        assert result.total_requests == 0
+
+
+class TestLocustParserEmpty:
+    def test_empty_csv(self, tmp_result_dir: Path):
+        from apps.api.engines.locust_parser import parse_locust_results
+        (tmp_result_dir / "stats_stats.csv").write_text("")
+        result = parse_locust_results(str(tmp_result_dir))
+        assert result.total_requests == 0

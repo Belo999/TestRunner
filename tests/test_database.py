@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -453,3 +453,58 @@ class TestMigrateDatabasePostgresql:
         mock_conn = MagicMock()
         db = DatabaseConnection(mock_conn, "postgresql")
         migrate_database(db)  # Should not raise, just skip PRAGMA checks
+
+
+class TestReleasePoolReservationSql:
+    def test_postgresql(self):
+        from apps.api.database import release_pool_reservation_sql
+        sql = release_pool_reservation_sql("postgresql")
+        assert "GREATEST" in sql
+        assert "%s" in sql
+
+    def test_default_backend(self):
+        from apps.api.database import release_pool_reservation_sql
+        sql = release_pool_reservation_sql()
+        assert "MAX" in sql
+
+
+class TestConnectDb:
+    def test_postgresql_branch(self, monkeypatch):
+        from apps.api.database import connect_db
+        monkeypatch.setattr("apps.api.database.DB_BACKEND", "postgresql")
+        with patch("apps.api.database.connect_postgresql") as mock_pg:
+            mock_pg.return_value = MagicMock()
+            result = connect_db()
+            mock_pg.assert_called_once()
+
+
+class TestConnectPostgresql:
+    def test_full_connection(self, monkeypatch):
+        from apps.api.database import connect_postgresql
+        mock_psycopg2 = MagicMock()
+        mock_extras = MagicMock()
+        mock_conn = MagicMock()
+        mock_psycopg2.connect.return_value = mock_conn
+        mock_psycopg2.extras = mock_extras
+        monkeypatch.setattr("apps.api.database.DB_BACKEND", "postgresql")
+        import sys
+        old = sys.modules.pop("psycopg2", None)
+        sys.modules["psycopg2"] = mock_psycopg2
+        sys.modules["psycopg2.extras"] = mock_extras
+        try:
+            result = connect_postgresql()
+            mock_psycopg2.connect.assert_called_once()
+            assert result._backend == "postgresql"
+        finally:
+            if old is not None:
+                sys.modules["psycopg2"] = old
+            else:
+                sys.modules.pop("psycopg2", None)
+            sys.modules.pop("psycopg2.extras", None)
+
+
+class TestRowsToDictsNonKeyed:
+    def test_non_keyed_rows_raises(self):
+        from apps.api.database import rows_to_dicts
+        with pytest.raises(TypeError):
+            rows_to_dicts([(1, "a"), (2, "b")])

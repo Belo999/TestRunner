@@ -110,3 +110,13 @@ class TestRedisCache:
         with patch("apps.api.redis_cache._send_command", return_value="$5\r\n{bad\r\n"):
             result = get_run_state(1)
             assert result is None
+
+    def test_send_command_success(self):
+        from apps.api.redis_cache import _send_command
+        mock_sock = MagicMock()
+        mock_sock.recv.return_value = b"+OK\r\n"
+        mock_sock.__enter__ = MagicMock(return_value=mock_sock)
+        mock_sock.__exit__ = MagicMock(return_value=False)
+        with patch("apps.api.redis_cache.REDIS_ENABLED", True), patch("socket.create_connection", return_value=mock_sock):
+            result = _send_command("SET", "key", "value")
+            assert result == "+OK\r\n"

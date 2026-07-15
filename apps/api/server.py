@@ -355,7 +355,7 @@ class MarathonRunnerHandler(BaseHTTPRequestHandler):
                     if not verify_password(password, stored_hash, stored_salt):
                         self.send_json({"error": "Invalid credentials"}, HTTPStatus.UNAUTHORIZED)
                         return
-                elif password:
+                else:
                     self.send_json({"error": "Invalid credentials"}, HTTPStatus.UNAUTHORIZED)
                     return
                 token = generate_token(user["id"], user["username"], user["role"], user["display_name"])
