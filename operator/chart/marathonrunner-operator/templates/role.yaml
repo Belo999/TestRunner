@@ -1,0 +1,84 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "marathonrunner-operator.fullname" . }}
+  labels:
+    {{- include "marathonrunner-operator.labels" . | nindent 4 }}
+rules:
+  # MarathonRunner CRDs
+  - apiGroups:
+      - marathonrunner.io
+    resources:
+      - testruns
+      - testruns/status
+      - testruns/finalizers
+      - performancetests
+      - performancetests/status
+      - performancetests/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # Jobs
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # Pods and events
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - events
+      - configmaps
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - watch
+  # Secrets (for future use)
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  # Leader election
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - update
+  # Status updates
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+{{- end }}

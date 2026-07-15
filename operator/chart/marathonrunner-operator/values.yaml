@@ -1,0 +1,122 @@
+# MarathonRunner Operator Helm Chart Values
+
+# -- Number of operator replicas
+replicaCount: 1
+
+image:
+  # -- Operator image repository
+  repository: marathonrunner-operator
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag (defaults to Chart appVersion)
+  tag: ""
+
+# -- Image pull secrets
+imagePullSecrets: []
+
+# -- Override the release name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Annotations for the service account
+  annotations: {}
+  # -- Service account name (generated if not set)
+  name: ""
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+
+# -- Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Container resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# -- Leader election configuration
+leaderElection:
+  # -- Enable leader election for HA
+  enabled: true
+  # -- Leader election ID
+  id: marathonrunner-operator-lock
+
+# -- Health probe configuration
+healthProbe:
+  # -- Liveness probe initial delay
+  livenessInitialDelay: 15
+  # -- Liveness probe period
+  livenessPeriod: 20
+  # -- Readiness probe initial delay
+  readinessInitialDelay: 5
+  # -- Readiness probe period
+  readinessPeriod: 10
+
+# -- Metrics configuration
+metrics:
+  # -- Enable metrics endpoint
+  enabled: true
+  # -- Metrics port
+  port: 8080
+
+# -- CRD installation
+crds:
+  # -- Install CRDs with the chart
+  install: true
+
+# -- Namespace configuration
+namespace:
+  # -- Create the execution namespace
+  createExecutionNamespace: true
+  # -- Execution namespace name
+  executionNamespace: marathonrunner-execution
+
+# -- RBAC configuration
+rbac:
+  # -- Create RBAC resources
+  create: true
+
+# -- Webhook configuration (for future use)
+webhook:
+  # -- Enable webhooks
+  enabled: false
+
+# -- Prometheus ServiceMonitor (for future use)
+serviceMonitor:
+  # -- Create a ServiceMonitor resource
+  enabled: false
+  # -- ServiceMonitor namespace
+  namespace: ""
+  # -- ServiceMonitor interval
+  interval: 30s
+  # -- ServiceMonitor labels
+  labels: {}

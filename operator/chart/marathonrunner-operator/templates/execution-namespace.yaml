@@ -1,0 +1,9 @@
+{{- if .Values.namespace.createExecutionNamespace -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace.executionNamespace }}
+  labels:
+    {{- include "marathonrunner-operator.labels" . | nindent 4 }}
+    marathonrunner.io/managed: "true"
+{{- end }}

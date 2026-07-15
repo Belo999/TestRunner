@@ -1,0 +1,30 @@
+MarathonRunner Operator has been installed successfully!
+
+1. Verify the operator is running:
+   kubectl get pods -n {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "marathonrunner-operator.name" . }}"
+
+2. Check the operator logs:
+   kubectl logs -n {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "marathonrunner-operator.name" . }}" -f
+
+3. Verify CRDs are installed:
+   kubectl get crds | grep marathonrunner
+
+4. Create a test run:
+   kubectl apply -f {{ .Values.namespace.executionNamespace }} -f - <<EOF
+   apiVersion: marathonrunner.io/v1alpha1
+   kind: TestRun
+   metadata:
+     name: my-test-run
+   spec:
+     runId: 1
+     engine: k6
+     targetEndpoint: https://httpbin.org
+     targetVusers: 10
+     durationMinutes: 1
+     scriptConfigMap: my-scripts
+   EOF
+
+5. Check the test run status:
+   kubectl get testruns -n {{ .Values.namespace.executionNamespace }}
+
+For more information, visit: https://github.com/marathonrunner/operator
