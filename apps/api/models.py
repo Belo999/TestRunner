@@ -2810,3 +2810,180 @@ def promote_config(scenario_id: int, from_env: str, to_env: str) -> dict[str, An
         }
     finally:
         connection.close()
+
+
+# OpenTelemetry Correlation
+
+import uuid
+
+
+def generate_trace_context(run_id: int) -> dict[str, Any]:
+    """Generate OpenTelemetry trace context for a test run.
+
+    Creates trace IDs and span IDs that can be propagated through
+    the test execution pipeline for end-to-end observability.
+    """
+    trace_id = uuid.uuid4().hex
+    span_id = uuid.uuid4().hex[:16]
+
+    return {
+        "traceId": trace_id,
+        "spanId": span_id,
+        "traceFlags": "01",
+        "runId": run_id,
+        "service": "marathonrunner",
+        "version": "1.0.0",
+    }
+
+
+def create_correlation_record(run_id: int, trace_context: dict[str, Any]) -> dict[str, Any]:
+    """Create a correlation record linking a run to its trace context.
+
+    Stores the trace context in the database for later querying
+    and correlation with application telemetry.
+    """
+    connection = connect_db()
+    try:
+        # Store correlation in audit_events
+        audit(connection, "trace_created", "test_run", run_id, {
+            "traceId": trace_context["traceId"],
+            "spanId": trace_context["spanId"],
+            "service": trace_context["service"],
+        })
+
+        return {
+            "runId": run_id,
+            "traceId": trace_context["traceId"],
+            "spanId": trace_context["spanId"],
+            "createdAt": utc_now(),
+            "status": "active",
+        }
+    finally:
+        connection.close()
+
+
+def get_correlation_by_trace(trace_id: str) -> list[dict[str, Any]]:
+    """Find all runs associated with a trace ID.
+
+    Enables tracing across multiple test runs and
+    correlating platform events with application telemetry.
+    """
+    connection = connect_db()
+    try:
+        events = connection.execute(
+            """SELECT entity_id, details, created_at
+               FROM audit_events
+               WHERE action = 'trace_created'
+               AND details LIKE ?""",
+            (f'%"traceId": "{trace_id}"%',)
+        ).fetchall()
+
+        return [
+            {
+                "runId": event["entity_id"],
+                "traceId": trace_id,
+                "createdAt": event["created_at"],
+            }
+            for event in events
+        ]
+    finally:
+        connection.close()
+
+
+def get_run_traces(run_id: int) -> dict[str, Any]:
+    """Get all trace information for a specific run.
+
+    Returns the trace context and related correlation data.
+    """
+    connection = connect_db()
+    try:
+        # Get the run's correlation events
+        events = connection.execute(
+            """SELECT details, created_at
+               FROM audit_events
+               WHERE entity_id = ? AND action LIKE 'trace%'""",
+            (run_id,)
+        ).fetchall()
+
+        traces = []
+        for event in events:
+            import json as json_mod
+            details = json_mod.loads(event["details"]) if isinstance(event["details"], str) else event["details"]
+            traces.append({
+                "traceId": details.get("traceId"),
+                "spanId": details.get("spanId"),
+                "service": details.get("service"),
+                "createdAt": event["created_at"],
+            })
+
+        return {
+            "runId": run_id,
+            "traceCount": len(traces),
+            "traces": traces,
+        }
+    finally:
+        connection.close()
+
+
+def propagate_trace_headers(run_id: int) -> dict[str, str]:
+    """Generate W3C Trace Context headers for HTTP propagation.
+
+    Returns headers that can be added to outgoing requests
+    to propagate trace context to downstream services.
+    """
+    trace_context = generate_trace_context(run_id)
+    create_correlation_record(run_id, trace_context)
+
+    return {
+        "traceparent": f"00-{trace_context['traceId']}-{trace_context['spanId']}-{trace_context['traceFlags']}",
+        "tracestate": f"marathonrunner={run_id}",
+        "x-correlation-id": trace_context["traceId"],
+        "x-run-id": str(run_id),
+    }
+
+
+def get_trace_summary() -> dict[str, Any]:
+    """Get a summary of all traced runs.
+
+    Provides observability into the tracing system's health
+    and coverage across test runs.
+    """
+    connection = connect_db()
+    try:
+        # Count traced runs
+        traced_runs = connection.execute(
+            """SELECT COUNT(DISTINCT entity_id) as cnt
+               FROM audit_events
+               WHERE action = 'trace_created'"""
+        ).fetchone()["cnt"]
+
+        # Count total completed runs
+        total_runs = connection.execute(
+            """SELECT COUNT(*) as cnt
+               FROM test_runs
+               WHERE status = 'completed'"""
+        ).fetchone()["cnt"]
+
+        # Get recent traces
+        recent_traces = connection.execute(
+            """SELECT entity_id, details, created_at
+               FROM audit_events
+               WHERE action = 'trace_created'
+               ORDER BY created_at DESC
+               LIMIT 10"""
+        ).fetchall()
+
+        return {
+            "tracedRuns": traced_runs,
+            "totalCompletedRuns": total_runs,
+            "coveragePercent": round(traced_runs / max(total_runs, 1) * 100, 1),
+            "recentTraces": [
+                {
+                    "runId": t["entity_id"],
+                    "createdAt": t["created_at"],
+                }
+                for t in recent_traces
+            ],
+        }
+    finally:
+        connection.close()

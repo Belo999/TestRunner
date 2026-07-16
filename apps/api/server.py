@@ -27,15 +27,19 @@ from .models import (
     detect_trend_anomalies,
     export_test_config,
     get_anomaly_summary,
+    get_correlation_by_trace,
     get_execution_mode,
     get_git_config_history,
     get_k8s_cluster_nodes,
     get_k8s_testrun_status,
     get_run,
     get_runs,
+    get_run_traces,
     get_table,
+    get_trace_summary,
     import_test_config,
     list_k8s_jobs,
+    propagate_trace_headers,
     promote_config,
     start_run,
     update_entity,
@@ -382,6 +386,21 @@ class MarathonRunnerHandler(BaseHTTPRequestHandler):
             drift_id = path_id(path, "/api/scenarios/", "/drift")
             if drift_id is not None:
                 self.send_json(detect_config_drift(drift_id, {}))
+                return
+            if path == "/api/otel/summary":
+                self.send_json(get_trace_summary())
+                return
+            otel_run_id = path_id(path, "/api/runs/", "/traces")
+            if otel_run_id is not None:
+                self.send_json(get_run_traces(otel_run_id))
+                return
+            otel_trace_id = path_string(path, "/api/traces/", "/runs")
+            if otel_trace_id is not None:
+                self.send_json({"runs": get_correlation_by_trace(otel_trace_id)})
+                return
+            otel_propagate_id = path_id(path, "/api/runs/", "/trace-headers")
+            if otel_propagate_id is not None:
+                self.send_json(propagate_trace_headers(otel_propagate_id))
                 return
             self.serve_static(path)
         except (ValueError, Exception) as exc:
